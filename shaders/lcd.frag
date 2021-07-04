@@ -1,10 +1,9 @@
-#version 320 es
+#version 100
 
-in mediump vec2 TextureCoords;
+varying mediump vec2 TextureCoords;
 uniform sampler2D LcdTexture;
-out lowp vec4 FragColor;
 
 void main()
 {
-    FragColor = texture(LcdTexture, TextureCoords).bgra;
+    gl_FragColor = texture2D(LcdTexture, TextureCoords).bgra;
 }

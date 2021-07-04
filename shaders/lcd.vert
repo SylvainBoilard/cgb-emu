@@ -1,8 +1,8 @@
-#version 320 es
+#version 100
 
-in vec2 VertexPosition;
-in mediump vec2 VertexTextureCoords;
-out mediump vec2 TextureCoords;
+attribute vec2 VertexPosition;
+attribute mediump vec2 VertexTextureCoords;
+varying mediump vec2 TextureCoords;
 
 void main()
 {

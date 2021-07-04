@@ -52,7 +52,7 @@ let get_color_index memory tile_index signed_index attrs px py =
 let get_color palette index =
   let index = index * 2 in
   palette.{index + 1} lsl 8 lor palette.{index}
-  
+
 let render_line lcd memory lcd_y =
   let scroll_x, scroll_y = memory.io_registers.{0x43}, memory.io_registers.{0x42} in
   let window_x, window_y = memory.io_registers.{0x4b} - 7, memory.io_registers.{0x4a} in

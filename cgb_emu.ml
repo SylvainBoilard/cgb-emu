@@ -119,8 +119,8 @@ let () =
   );
   GLFW.init ();
   GLFW.windowHint GLFW.ClientApi GLFW.OpenGLESApi;
-  GLFW.windowHint GLFW.ContextVersionMajor 3;
-  GLFW.windowHint GLFW.ContextVersionMinor 2;
+  GLFW.windowHint GLFW.ContextVersionMajor 2;
+  GLFW.windowHint GLFW.ContextVersionMinor 0;
   GLFW.windowHint GLFW.Resizable false;
   let window = GLFW.createWindow 960 864 "cgb_emu" () in
   GLFW.makeContextCurrent (Some window);
