@@ -1,0 +1,9 @@
+(library
+ (name            gl)
+ (modules         GL)
+ (wrapped         false)
+ (libraries       bigarray)
+ (foreign_stubs
+  (language       c)
+  (names          GL_stubs))
+ (c_library_flags (-lGL)))
