@@ -8,7 +8,8 @@ let key_callback (cpu : Cpu.t) (memory : Memory.t) window key _(*scancode*) acti
     | Kp9 -> 0x20
     | Kp0 -> 0x40
     | Kp1 -> 0x80
-    | Escape -> GLFW.setWindowShouldClose window true; -1
+    | Escape when action = GLFW.Press -> GLFW.setWindowShouldClose window true; -1
+    | F1 when action = GLFW.Press -> Utils.trace := not !Utils.trace; -1
     | _ -> -1
   in
   match action with
@@ -80,7 +81,7 @@ let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
     memory.io_registers.{0x44} <- lcd_y;
     (* Check for interrupts *)
     let requested_and_enabled = memory.ram_high.{0x7f} land memory.io_registers.{0x0f} in
-    if requested_and_enabled <> 0 then (
+    if requested_and_enabled <> 0 && cpu.int_master_enable (* FIXME: wrong, but necessary to get pokecrystal anywhere *) then (
       (* Even if IME is unset, when an enabled interrupt is requested, un-halt.*)
       cpu.halted <- false;
       if cpu.int_master_enable then (
@@ -97,18 +98,16 @@ let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
       cpu.m_cycles <- cpu.m_cycles + 1
     ) else (
       (* Execute next instruction *)
-      (*
-      Printf.eprintf "[%d M-cycles (%f s)]\n"
-        cpu.m_cycles (float_of_int cpu.m_cycles /. float_of_int (1 lsl 20));
-      Printf.eprintf " B = 0x%02x    C = 0x%02x    D = 0x%02x    E = 0x%02x\n"
-        cpu.registers.{0} cpu.registers.{1} cpu.registers.{2} cpu.registers.{3};
-      Printf.eprintf " H = 0x%02x    L = 0x%02x    A = 0x%02x    F = 0x%02x\n"
-        cpu.registers.{4} cpu.registers.{5} cpu.registers.{6} cpu.registers.{7};
-      Printf.eprintf "SP = 0x%04x  PC = 0x%04x\n%!" cpu.stack_ptr cpu.program_ctr;
-       *)
-      let opcode = Cpu.read_8 cpu memory cpu.program_ctr in
+      let open Cpu in
+      if !Utils.trace then (
+        Printf.eprintf "[%d M-cycles (%f s)]\n" cpu.m_cycles (float_of_int cpu.m_cycles /. float_of_int (1 lsl 20));
+        Printf.eprintf " B = 0x%02x    C = 0x%02x    D = 0x%02x    E = 0x%02x\n" cpu.%{B} cpu.%{C} cpu.%{D} cpu.%{E};
+        Printf.eprintf " H = 0x%02x    L = 0x%02x    A = 0x%02x    F = %s\n" cpu.%{H} cpu.%{L} cpu.%{A} (string_of_flags cpu);
+        Printf.eprintf "SP = 0x%04x  PC = 0x%04x\n%!" cpu.stack_ptr cpu.program_ctr
+      );
+      let opcode = read_8 cpu memory cpu.program_ctr in
       cpu.program_ctr <- cpu.program_ctr + 1;
-      Cpu.execute cpu memory opcode
+      execute cpu memory opcode
     )
   done
 
@@ -122,7 +121,8 @@ let () =
   GLFW.windowHint GLFW.ContextVersionMajor 2;
   GLFW.windowHint GLFW.ContextVersionMinor 0;
   GLFW.windowHint GLFW.Resizable false;
-  let window = GLFW.createWindow 960 864 "cgb_emu" () in
+  (* let window = GLFW.createWindow 960 864 "cgb_emu" () in *)
+  let window = GLFW.createWindow 480 432 "cgb_emu" () in
   GLFW.makeContextCurrent (Some window);
   let cpu = Cpu.create () in
   let memory = Unix.handle_unix_error Memory.init_from_rom Sys.argv.(1) in

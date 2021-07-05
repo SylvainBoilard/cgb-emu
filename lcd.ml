@@ -68,8 +68,7 @@ let render_line lcd memory lcd_y =
   let sprites =
     let sprites_height = if bigger_sprites then 16 else 8 in
     let rec loop acc count = function
-      | _ when count = 10 -> acc
-      | 160 -> acc
+      | i when i = 160 || count = 10 -> List.rev acc
       | i ->
          let y_pos = memory.oam.{i} - 16 in
          if y_pos <= lcd_y && lcd_y < y_pos + sprites_height
@@ -114,8 +113,8 @@ let render_line lcd memory lcd_y =
        || bg_win_master_prio
           && (bg_win_attrs land 0x80 <> 0
               || (bg_win_color_index <> 0 && obj_attrs land 0x80 <> 0))
-    then get_color memory.bg_palette_data ((bg_win_attrs lsl 2 land 0x1d) lor bg_win_color_index)
-    else get_color memory.obj_palette_data ((obj_attrs lsl 2 land 0x1d) lor obj_color_index)
+    then get_color memory.bg_palette_data ((bg_win_attrs lsl 2 land 0x1c) lor bg_win_color_index)
+    else get_color memory.obj_palette_data ((obj_attrs lsl 2 land 0x1c) lor obj_color_index)
   in
   if lcdc land 0x80 = 0
   then Array1.fill lcd.line_data 0
@@ -126,8 +125,7 @@ let render_line lcd memory lcd_y =
        setup). Instead we shift the color data one bit to the left in order to align
        the color components correctly, and we reorder them in the fragment shader. *)
     for lcd_x = 0 to 159 do
-      let color = render_pixel lcd_x in
-      lcd.line_data.{lcd_x} <- color lsl 1
+      lcd.line_data.{lcd_x} <- render_pixel lcd_x lsl 1
     done;
   GL.texSubImage2D GL.Texture2D 0 0 lcd_y GL.RGBA GL.UnsignedShort5551 (reshape_2 (genarray_of_array1 lcd.line_data) 1 160)
 
