@@ -84,6 +84,16 @@ let create () =
     inputs = 0; ext_ram_or_timer_enable = false;
     rtc_selected = -1; rtc_latched = -1; rtc_origin = int_of_float (Unix.time ()) }
 
+let perform_dma_step memory src dst size =
+  let dst_sub = Array1.sub memory.ram_video_n (dst land 0x1ff0) size in
+  match Char.chr (src lsr 8) with
+  | '\x00'..'\x3f' -> Array1.(blit (sub memory.rom_0 (src land 0x3ff0) size) dst_sub)
+  | '\x40'..'\x7f' -> Array1.(blit (sub memory.rom_n (src land 0x3ff0) size) dst_sub)
+  | '\xa0'..'\xbf' -> Array1.(blit (sub memory.ram_ext_n (src land 0x1ff0) size) dst_sub)
+  | '\xc0'..'\xcf' -> Array1.(blit (sub memory.ram_work_0 (src land 0x0ff0) size) dst_sub)
+  | '\xd0'..'\xdf' -> Array1.(blit (sub memory.ram_work_n (src land 0x0ff0) size) dst_sub)
+  | _ -> Printf.eprintf "perform_dma_step: DMA transfer to VRAM from address 0x%04x not implemented.\n%!" src
+
 let read_8 cpu memory addr =
   cpu.m_cycles <- cpu.m_cycles + 1;
   let value =
@@ -122,7 +132,7 @@ let read_8 cpu memory addr =
     | 0xff6b -> memory.obj_palette_data.{memory.io_registers.{0x6a} land 0x3f} (* TODO: inacessible during mode 3 *)
     | 0xff04 | 0xff05 | 0xff06 | 0xff07 | 0xff0f
       | 0xff40 | 0xff41 | 0xff42 | 0xff43 | 0xff44 | 0xff45 | 0xff46 | 0xff4a | 0xff4b | 0xff4d | 0xff4f
-      | 0xff68 | 0xff6a | 0xff70 ->
+      | 0xff51 | 0xff52 | 0xff53 | 0xff54 | 0xff55 | 0xff68 | 0xff6a | 0xff70 ->
        memory.io_registers.{addr - 0xff00}
     | 0xff47 | 0xff48 | 0xff49 -> memory.io_registers.{addr - 0xff00} (* SILENCE: Grayscale palettes *)
     | _ when addr >= 0xff10 && addr < 0xff40 -> memory.io_registers.{addr - 0xff00} (* SILENCE: sound *)
@@ -194,15 +204,14 @@ let write_8 cpu memory addr value =
      Printf.eprintf "write_8: attempted write to 0xff44 (read-only, LCD Y coordinate).\n%!"
   | 0xff45 (* LCD Y Compare *) -> memory.io_registers.{0x45} <- value
   | 0xff46 (* DMA Transfer and Start Address *) ->
-     (* TODO: implement general purpose DMA registers 0xff51 to 0xff55 *)
      memory.io_registers.{0x46} <- value;
      begin match Char.chr value with
-     | '\x00'..'\x3f' -> Array1.(blit (sub memory.rom_0 (value lsl 8 land 0x3fff) 160) memory.oam)
-     | '\x40'..'\x7f' -> Array1.(blit (sub memory.rom_n (value lsl 8 land 0x3fff) 160) memory.oam)
-     | '\xa0'..'\xbf' -> Array1.(blit (sub memory.ram_ext_n (value lsl 8 land 0x1fff) 160) memory.oam)
-     | '\xc0'..'\xcf' -> Array1.(blit (sub memory.ram_work_0 (value lsl 8 land 0x0fff) 160) memory.oam)
-     | '\xd0'..'\xdf' -> Array1.(blit (sub memory.ram_work_n (value lsl 8 land 0x0fff) 160) memory.oam)
-     | _ -> Printf.eprintf "write_8: DMA transfer from address 0x%02x00 not implemented.\n%!" (value lsl 8)
+     | '\x00'..'\x3f' -> Array1.(blit (sub memory.rom_0 (value lsl 8 land 0x3ff0) 160) memory.oam)
+     | '\x40'..'\x7f' -> Array1.(blit (sub memory.rom_n (value lsl 8 land 0x3ff0) 160) memory.oam)
+     | '\xa0'..'\xbf' -> Array1.(blit (sub memory.ram_ext_n (value lsl 8 land 0x1ff0) 160) memory.oam)
+     | '\xc0'..'\xcf' -> Array1.(blit (sub memory.ram_work_0 (value lsl 8 land 0x0ff0) 160) memory.oam)
+     | '\xd0'..'\xdf' -> Array1.(blit (sub memory.ram_work_n (value lsl 8 land 0x0ff0) 160) memory.oam)
+     | _ -> Printf.eprintf "write_8: DMA transfer to OAM from address 0x%02x00 not implemented.\n%!" (value lsl 8)
      end
   | 0xff47 | 0xff48 | 0xff49 -> memory.io_registers.{addr - 0xff00} <- value (* SILENCE: Grayscale palettes *)
   | 0xff4a (* Window Y Position *) -> memory.io_registers.{0x4a} <- value
@@ -212,6 +221,23 @@ let write_8 cpu memory addr value =
   | 0xff4f (* VRAM Bank *) ->
      memory.ram_video_n <- memory.ram_video_banks.(value land 0x01);
      memory.io_registers.{0x4f} <- value lor 0xfe
+  | 0xff51 (* DMA Source, high *) -> memory.io_registers.{0x51} <- value
+  | 0xff52 (* DMA Source, low *) -> memory.io_registers.{0x52} <- value
+  | 0xff53 (* DMA Destination, high *) -> memory.io_registers.{0x53} <- value
+  | 0xff54 (* DMA Destination, low *) -> memory.io_registers.{0x54} <- value
+  | 0xff55 (* DMA Control *) ->
+     if value land 0x80 <> 0 then (* hblank DMA *)
+       memory.io_registers.{0x55} <- value land 0x7f
+     else if memory.io_registers.{0x55} land 0x80 = 0 then (* terminate hblank DMA *)
+       memory.io_registers.{0x55} <- memory.io_registers.{0x55} lor 0x80
+     else ( (* immediate DMA *)
+       let src = memory.io_registers.{0x51} lsl 8 lor memory.io_registers.{0x52} in
+       let dst = memory.io_registers.{0x53} lsl 8 lor memory.io_registers.{0x54} in
+       let length = (value land 0x7f) lsl 4 + 1 in
+       perform_dma_step memory src dst length;
+       cpu.m_cycles <- cpu.m_cycles + length / 2;
+       memory.io_registers.{0x55} <- 0xff
+     )
   | 0xff68 (* Color BG Palette Index *) -> memory.io_registers.{0x68} <- value
   | 0xff69 (* Color BG Palette Data *) -> (* TODO: inacessible during mode 3 *)
      let bgpi = memory.io_registers.{0x68} in

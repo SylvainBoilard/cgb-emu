@@ -25,6 +25,50 @@ let key_callback (cpu : Cpu.t) (memory : Memory.t) window key _(*scancode*) acti
 let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
   let next_vblank = cpu.m_cycles - (cpu.m_cycles + 1140) mod 17556 + 17556 in
   while cpu.m_cycles < next_vblank do
+    (* Update LCD *)
+    let lcd_y = cpu.m_cycles / 114 mod 154 in
+    let lcd_mode = match cpu.m_cycles mod 114 with
+      | _ when lcd_y >= 144 -> 1
+      | c when c < 20 -> 2
+      | c when c < 63 -> 3
+      | _ -> 0
+    in
+    let stat = memory.io_registers.{0x41} in
+    let stat =
+      if stat land 0x03 <> lcd_mode then (
+        if lcd_mode = 3
+        then Lcd.render_line lcd memory lcd_y
+        else (
+          if stat land 0x08 lsl lcd_mode <> 0 then
+            memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x02;
+          if lcd_mode = 1 then
+            memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x01
+          else if lcd_mode = 0 && memory.io_registers.{0x55} land 0x80 = 0 then (
+            let src = memory.io_registers.{0x51} lsl 8 lor memory.io_registers.{0x52} in
+            let dst = memory.io_registers.{0x53} lsl 8 lor memory.io_registers.{0x54} in
+            Cpu.perform_dma_step memory src dst 16;
+            cpu.m_cycles <- cpu.m_cycles + 8;
+            let next_src = src + 16 in
+            let next_dst = dst + 16 in
+            memory.io_registers.{0x51} <- next_src lsr 8;
+            memory.io_registers.{0x52} <- next_src;
+            memory.io_registers.{0x53} <- next_dst lsr 8;
+            memory.io_registers.{0x54} <- next_dst;
+            memory.io_registers.{0x55} <- memory.io_registers.{0x55} - 1
+          )
+        );
+        stat land lnot 0x03 lor lcd_mode
+      ) else stat
+    in
+    let stat =
+      if lcd_y = memory.io_registers.{0x45} then (
+        if stat land 0x44 = 0x40 then
+          memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x02;
+        stat lor 0x04
+      ) else stat land lnot 0x04
+    in
+    memory.io_registers.{0x41} <- stat;
+    memory.io_registers.{0x44} <- lcd_y;
     (* Update internal timers *)
     while cpu.divider_register_last_tick + 64 <= cpu.m_cycles do
       cpu.divider_register_last_tick <- cpu.divider_register_last_tick + 64;
@@ -47,37 +91,6 @@ let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
         )
       done
     );
-    (* Update LCD *)
-    let lcd_y = cpu.m_cycles / 114 mod 154 in
-    let lcd_mode = match cpu.m_cycles mod 114 with
-      | _ when lcd_y >= 144 -> 1
-      | c when c < 20 -> 2
-      | c when c < 63 -> 3
-      | _ -> 0
-    in
-    let stat = memory.io_registers.{0x41} in
-    let stat =
-      if stat land 0x03 <> lcd_mode then (
-        if lcd_mode = 3
-        then Lcd.render_line lcd memory lcd_y
-        else (
-          if stat land 0x08 lsl lcd_mode <> 0 then
-            memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x02;
-          if lcd_mode = 1 then
-            memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x01
-        );
-        stat land lnot 0x03 lor lcd_mode
-      ) else stat
-    in
-    let stat =
-      if lcd_y = memory.io_registers.{0x45} then (
-        if stat land 0x44 = 0x40 then
-          memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x02;
-        stat lor 0x04
-      ) else stat land lnot 0x04
-    in
-    memory.io_registers.{0x41} <- stat;
-    memory.io_registers.{0x44} <- lcd_y;
     (* Check for interrupts *)
     let requested_and_enabled = memory.ram_high.{0x7f} land memory.io_registers.{0x0f} in
     (* Even if IME is unset, when an enabled interrupt is requested, un-halt.*)

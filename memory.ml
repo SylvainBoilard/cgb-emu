@@ -44,6 +44,7 @@ let init_from_rom filename =
   let io_registers = Array1.create Int8_unsigned C_layout 128 in
   Array1.fill io_registers 0;
   io_registers.{0x00} <- -1;
+  io_registers.{0x55} <- -1;
   let ram_high = Array1.create Int8_unsigned C_layout 128 in
   let bg_palette_data = Array1.create Int8_unsigned C_layout 64 in
   Array1.fill bg_palette_data ~-1;
