@@ -121,9 +121,7 @@ let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
         cpu.interrupt_master_enable <- true;
         cpu.interrupt_master_enable_pending <- false;
       );
-      let opcode = read_8 cpu memory cpu.program_ctr in
-      cpu.program_ctr <- cpu.program_ctr + 1;
-      execute cpu memory opcode
+      execute cpu memory (read_8_immediate cpu memory)
     )
   done
 

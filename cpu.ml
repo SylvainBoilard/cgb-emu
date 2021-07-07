@@ -142,8 +142,17 @@ let read_8 cpu memory addr =
   if !trace then Printf.eprintf "Read value 0x%02x at 0x%04x\n%!" value addr;
   value
 
+let read_8_immediate cpu memory =
+  let addr = cpu.program_ctr in
+  cpu.program_ctr <- addr + 1;
+  read_8 cpu memory addr
+
 let read_16 cpu memory addr =
   read_8 cpu memory (addr + 1) lsl 8 lor read_8 cpu memory addr
+
+let read_16_immediate cpu memory =
+  let low = read_8_immediate cpu memory in
+  read_8_immediate cpu memory lsl 8 lor low
 
 let write_8 cpu memory addr value =
   if !trace then Printf.eprintf "Write value 0x%02x at 0x%04x\n%!" (value land 0xff) addr;
@@ -260,8 +269,7 @@ let write_16 cpu memory addr value =
   write_8 cpu memory (addr + 1) (value lsr 8)
 
 let execute_cb_prefixed cpu memory =
-  let opcode = read_8 cpu memory cpu.program_ctr in
-  cpu.program_ctr <- cpu.program_ctr + 1;
+  let opcode = read_8_immediate cpu memory in
   let operand = match opcode land 0x07 with
     | 0x6 -> read_8 cpu memory cpu.%%{HL}
     | 0x7 -> cpu.%{A}
@@ -310,26 +318,24 @@ let execute_cb_prefixed cpu memory =
   | n -> cpu.registers.{n} <- result
 
 let jr cpu memory cond =
-  let offset = signed_int8 (read_8 cpu memory cpu.program_ctr) in
+  let offset = signed_int8 (read_8_immediate cpu memory) in
   if cond then (
-    cpu.program_ctr <- cpu.program_ctr + offset + 1;
+    cpu.program_ctr <- cpu.program_ctr + offset;
     cpu.m_cycles <- cpu.m_cycles + 1
-  ) else cpu.program_ctr <- cpu.program_ctr + 1
+  )
 
 let jp cpu memory cond =
-  let addr = read_16 cpu memory cpu.program_ctr in
+  let addr = read_16_immediate cpu memory in
   if cond then (
     cpu.program_ctr <- addr;
     cpu.m_cycles <- cpu.m_cycles + 1
-  ) else cpu.program_ctr <- cpu.program_ctr + 2
+  )
 
 let ld_rr_u16 cpu memory rr =
-  cpu.%%{rr} <- read_16 cpu memory cpu.program_ctr;
-  cpu.program_ctr <- cpu.program_ctr + 2
+  cpu.%%{rr} <- read_16_immediate cpu memory
 
 let ld_sp_u16 cpu memory =
-  cpu.stack_ptr <- read_16 cpu memory cpu.program_ctr;
-  cpu.program_ctr <- cpu.program_ctr + 2
+  cpu.stack_ptr <- read_16_immediate cpu memory
 
 let ld_r_addr cpu memory r addr =
   cpu.%{r} <- read_8 cpu memory addr
@@ -384,8 +390,7 @@ let decr_r cpu r =
   change_flag cpu HalfCarryFlag (result >= 0x10)
 
 let ld_r_u8 cpu memory r =
-  cpu.%{r} <- read_8 cpu memory cpu.program_ctr;
-  cpu.program_ctr <- cpu.program_ctr + 1
+  cpu.%{r} <- read_8_immediate cpu memory
 
 let push_rr cpu memory rr =
   cpu.stack_ptr <- cpu.stack_ptr - 2;
@@ -410,8 +415,7 @@ let ret cpu memory cond =
   ) else cpu.m_cycles <- cpu.m_cycles + 1
 
 let call cpu memory cond =
-  let addr = read_16 cpu memory cpu.program_ctr in
-  cpu.program_ctr <- cpu.program_ctr + 2;
+  let addr = read_16_immediate cpu memory in
   if cond then (
     push_pc cpu memory;
     cpu.program_ctr <- addr;
@@ -424,9 +428,7 @@ let execute cpu memory opcode =
   | '\xd3' | '\xdb' | '\xdd' | '\xe3' | '\xe4' | '\xeb'..'\xed' | '\xf4' | '\xfc' | '\xfd' ->
      Printf.eprintf "execute: illegal opcode 0x%02x at 0x%04x.\n%!" opcode (cpu.program_ctr - 1)
   | '\x00' -> ()
-  | '\x08' ->
-     write_16 cpu memory (read_16 cpu memory cpu.program_ctr) cpu.stack_ptr;
-     cpu.program_ctr <- cpu.program_ctr + 2
+  | '\x08' -> write_16 cpu memory (read_16_immediate cpu memory) cpu.stack_ptr
   | '\x10' -> (* TODO: implement double speed support *)
      if memory.io_registers.{0x4d} land 0x01 <> 0 then (
        Printf.eprintf "execute: attempted speed switch (unimplemented, triggered by STOP at 0x%04x, masquerading).\n%!"
@@ -514,9 +516,7 @@ let execute cpu memory opcode =
   | '\x1e' -> ld_r_u8 cpu memory E
   | '\x26' -> ld_r_u8 cpu memory H
   | '\x2e' -> ld_r_u8 cpu memory L
-  | '\x36' ->
-     write_8 cpu memory cpu.%%{HL} (read_8 cpu memory cpu.program_ctr);
-     cpu.program_ctr <- cpu.program_ctr + 1
+  | '\x36' -> write_8 cpu memory cpu.%%{HL} (read_8_immediate cpu memory)
   | '\x3e' -> ld_r_u8 cpu memory A
 
   | '\x07' ->
@@ -588,25 +588,19 @@ let execute cpu memory opcode =
   | '\xc8' -> ret cpu memory (get_flag cpu ZeroFlag)
   | '\xd0' -> ret cpu memory (not (get_flag cpu CarryFlag))
   | '\xd8' -> ret cpu memory (get_flag cpu CarryFlag)
-  | '\xe0' ->
-     write_8 cpu memory (0xff00 + read_8 cpu memory cpu.program_ctr) cpu.%{A};
-     cpu.program_ctr <- cpu.program_ctr + 1
+  | '\xe0' -> write_8 cpu memory (0xff00 + read_8_immediate cpu memory) cpu.%{A}
   | '\xe8' ->
-     let result = cpu.stack_ptr + signed_int8 (read_8 cpu memory cpu.program_ctr) in
+     let result = cpu.stack_ptr + signed_int8 (read_8_immediate cpu memory) in
      cpu.stack_ptr <- result land 0xffff;
-     cpu.program_ctr <- cpu.program_ctr + 1;
      cpu.m_cycles <- cpu.m_cycles + 2;
      reset_flag cpu ZeroFlag;
      reset_flag cpu SubtractionFlag;
      change_flag cpu HalfCarryFlag (result >= 0x1000);
      change_flag cpu CarryFlag (result < 0 || result >= 0x10000)
-  | '\xf0' ->
-     cpu.%{A} <- read_8 cpu memory (0xff00 + read_8 cpu memory cpu.program_ctr);
-     cpu.program_ctr <- cpu.program_ctr + 1
+  | '\xf0' -> cpu.%{A} <- read_8 cpu memory (0xff00 + read_8_immediate cpu memory)
   | '\xf8' ->
-     let result = cpu.stack_ptr + signed_int8 (read_8 cpu memory cpu.program_ctr) in
+     let result = cpu.stack_ptr + signed_int8 (read_8_immediate cpu memory) in
      cpu.%%{HL} <- result;
-     cpu.program_ctr <- cpu.program_ctr + 1;
      cpu.m_cycles <- cpu.m_cycles + 1;
      reset_flag cpu ZeroFlag;
      reset_flag cpu SubtractionFlag;
@@ -631,13 +625,9 @@ let execute cpu memory opcode =
   | '\xd2' -> jp cpu memory (not (get_flag cpu CarryFlag))
   | '\xda' -> jp cpu memory (get_flag cpu CarryFlag)
   | '\xe2' -> ld_addr_r cpu memory (0xff00 + cpu.%{C}) A
-  | '\xea' ->
-     ld_addr_r cpu memory (read_16 cpu memory cpu.program_ctr) A;
-     cpu.program_ctr <- cpu.program_ctr + 2
+  | '\xea' -> ld_addr_r cpu memory (read_16_immediate cpu memory) A
   | '\xf2' -> ld_r_addr cpu memory A (0xff00 + cpu.%{C})
-  | '\xfa' ->
-     ld_r_addr cpu memory A (read_16 cpu memory cpu.program_ctr);
-     cpu.program_ctr <- cpu.program_ctr + 2
+  | '\xfa' -> ld_r_addr cpu memory A (read_16_immediate cpu memory)
 
   | '\xc3' -> jp cpu memory true
   | '\xcb' -> execute_cb_prefixed cpu memory
@@ -659,8 +649,7 @@ let execute cpu memory opcode =
 
   | '\xc6' | '\xce' | '\xd6' | '\xde' | '\xe6' | '\xee' | '\xf6' | '\xfe' ->
      let operator = opcode lsr 3 land 0x7 in
-     let operand_data = read_8 cpu memory cpu.program_ctr in
-     cpu.program_ctr <- cpu.program_ctr + 1;
+     let operand_data = read_8_immediate cpu memory in
      let result = match operator with
        | 0x0 -> cpu.%{A} + operand_data
        | 0x1 -> cpu.%{A} + operand_data + Bool.to_int (get_flag cpu CarryFlag)
