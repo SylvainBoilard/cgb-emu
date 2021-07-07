@@ -7,7 +7,8 @@ type t = {
     mutable program_ctr: int;
     mutable stack_ptr: int;
     mutable m_cycles: int; (* 2^20 per second *)
-    mutable int_master_enable: bool;
+    mutable interrupt_master_enable: bool;
+    mutable interrupt_master_enable_pending: bool;
     mutable halted: bool;
     mutable divider_register_last_tick: int;
     mutable timer_counter_last_tick: int;
@@ -78,7 +79,7 @@ let create () =
   Array1.fill registers 0;
   registers.{int_of_register A} <- 0x11; (* CGB hardware *)
   { registers; program_ctr = 0x100; stack_ptr = 0xfffe; m_cycles = 0;
-    int_master_enable = true; halted = false;
+    interrupt_master_enable = true; interrupt_master_enable_pending = false; halted = false;
     divider_register_last_tick = 0; timer_counter_last_tick = 0;
     inputs = 0; ext_ram_or_timer_enable = false;
     rtc_selected = -1; rtc_latched = -1; rtc_origin = int_of_float (Unix.time ()) }
@@ -193,15 +194,15 @@ let write_8 cpu memory addr value =
      Printf.eprintf "write_8: attempted write to 0xff44 (read-only, LCD Y coordinate).\n%!"
   | 0xff45 (* LCD Y Compare *) -> memory.io_registers.{0x45} <- value
   | 0xff46 (* DMA Transfer and Start Address *) ->
+     (* TODO: implement general purpose DMA registers 0xff51 to 0xff55 *)
      memory.io_registers.{0x46} <- value;
      begin match Char.chr value with
      | '\x00'..'\x3f' -> Array1.(blit (sub memory.rom_0 (value lsl 8 land 0x3fff) 160) memory.oam)
      | '\x40'..'\x7f' -> Array1.(blit (sub memory.rom_n (value lsl 8 land 0x3fff) 160) memory.oam)
-     | '\x80'..'\x9f' -> Array1.(blit (sub memory.ram_video_n (value lsl 8 land 0x1fff) 160) memory.oam)
      | '\xa0'..'\xbf' -> Array1.(blit (sub memory.ram_ext_n (value lsl 8 land 0x1fff) 160) memory.oam)
      | '\xc0'..'\xcf' -> Array1.(blit (sub memory.ram_work_0 (value lsl 8 land 0x0fff) 160) memory.oam)
      | '\xd0'..'\xdf' -> Array1.(blit (sub memory.ram_work_n (value lsl 8 land 0x0fff) 160) memory.oam)
-     | _ -> Printf.eprintf "write_8: DMA transfer from address 0x%02x00 (> 0xe000) unimplemented.\n%!" (value lsl 8)
+     | _ -> Printf.eprintf "write_8: DMA transfer from address 0x%02x00 not implemented.\n%!" (value lsl 8)
      end
   | 0xff47 | 0xff48 | 0xff49 -> memory.io_registers.{addr - 0xff00} <- value (* SILENCE: Grayscale palettes *)
   | 0xff4a (* Window Y Position *) -> memory.io_registers.{0x4a} <- value
@@ -222,9 +223,9 @@ let write_8 cpu memory addr value =
      memory.obj_palette_data.{obpi land 0x3f} <- value;
      if obpi land 0x80 <> 0 then memory.io_registers.{0x6a} <- (obpi + 1) land lnot 0x40
   | 0xff70 (* WRAM Bank *) ->
-     let n = max 1 value land 0x07 in
-     memory.io_registers.{0x70} <- n;
-     memory.ram_work_n <- memory.ram_work_banks.(n)
+     let n = value land 0x07 in
+     memory.io_registers.{0x70} <- n lor 0xf8;
+     memory.ram_work_n <- memory.ram_work_banks.(max 1 n)
   | _ when addr >= 0xff80 -> memory.ram_high.{addr - 0xff80} <- value
   | _ -> Printf.eprintf "write_8: 0x%04x is outside implemented range (value = 0x%02x).\n%!" addr value
 
@@ -267,9 +268,9 @@ let execute_cb_prefixed cpu memory =
     | '\x38'..'\x3f' ->
        change_flag cpu CarryFlag (operand land 0x01 <> 0);
        operand lsr 1
-    | '\x40'..'\x7f' -> operand land 0x01 lsl (opcode lsr 5)
-    | '\x80'..'\xbf' -> operand land lnot (0x01 lsl (opcode lsr 5))
-    | '\xc0'..'\xff' -> operand lor 0x01 lsl (opcode lsr 5)
+    | '\x40'..'\x7f' -> operand land 0x01 lsl ((opcode lsr 3) land 0x7)
+    | '\x80'..'\xbf' -> operand land lnot (0x01 lsl ((opcode lsr 3) land 0x7))
+    | '\xc0'..'\xff' -> operand lor 0x01 lsl ((opcode lsr 3) land 0x7)
   in
   if opcode < 0x80 then (
     change_flag cpu ZeroFlag (result = 0);
@@ -394,7 +395,7 @@ let call cpu memory cond =
 let execute cpu memory opcode =
   if !trace then Printf.eprintf "Executing opcode 0x%02x at 0x%04x\n%!" opcode (cpu.program_ctr - 1);
   match Char.chr opcode with
-  | '\xd3' | '\xdb' | '\xdd' | '\xe3'..'\xe4' | '\xeb'..'\xed' | '\xf4' | '\xfc'..'\xfd' ->
+  | '\xd3' | '\xdb' | '\xdd' | '\xe3' | '\xe4' | '\xeb'..'\xed' | '\xf4' | '\xfc' | '\xfd' ->
      Printf.eprintf "execute: illegal opcode 0x%02x at 0x%04x.\n%!" opcode (cpu.program_ctr - 1)
   | '\x00' -> ()
   | '\x08' ->
@@ -591,7 +592,7 @@ let execute cpu memory opcode =
   | '\xd1' -> pop_rr cpu memory DE
   | '\xd9' ->
      ret cpu memory true;
-     cpu.int_master_enable <- true;
+     cpu.interrupt_master_enable_pending <- true;
   | '\xe1' -> pop_rr cpu memory HL
   | '\xe9' -> cpu.program_ctr <- cpu.%%{HL}
   | '\xf1' -> pop_rr cpu memory AF
@@ -614,8 +615,10 @@ let execute cpu memory opcode =
 
   | '\xc3' -> jp cpu memory true
   | '\xcb' -> execute_cb_prefixed cpu memory
-  | '\xf3' -> cpu.int_master_enable <- false
-  | '\xfb' -> cpu.int_master_enable <- true
+  | '\xf3' ->
+     cpu.interrupt_master_enable <- false;
+     cpu.interrupt_master_enable_pending <- false;
+  | '\xfb' -> cpu.interrupt_master_enable_pending <- true
 
   | '\xc4' -> call cpu memory (not (get_flag cpu ZeroFlag))
   | '\xcc' -> call cpu memory (get_flag cpu ZeroFlag)

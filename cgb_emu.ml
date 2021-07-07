@@ -25,22 +25,21 @@ let key_callback (cpu : Cpu.t) (memory : Memory.t) window key _(*scancode*) acti
 let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
   let next_vblank = cpu.m_cycles - (cpu.m_cycles + 1140) mod 17556 + 17556 in
   while cpu.m_cycles < next_vblank do
-    (* Update Divider Register *)
+    (* Update internal timers *)
     while cpu.divider_register_last_tick + 64 <= cpu.m_cycles do
       cpu.divider_register_last_tick <- cpu.divider_register_last_tick + 64;
       memory.io_registers.{0x04} <- memory.io_registers.{0x04} + 1
     done;
-    (* Update Timer Counter *)
     if memory.io_registers.{0x07} land 0x04 <> 0 then (
-      let incr = match memory.io_registers.{0x07} land 0x03 with
+      let tick_interval = match memory.io_registers.{0x07} land 0x03 with
         | 0x0 -> 256
         | 0x1 -> 4
         | 0x2 -> 16
         | 0x3 -> 64
         | _ -> assert false
       in
-      while cpu.timer_counter_last_tick + incr <= cpu.m_cycles do
-        cpu.timer_counter_last_tick <- cpu.timer_counter_last_tick + incr;
+      while cpu.timer_counter_last_tick + tick_interval <= cpu.m_cycles do
+        cpu.timer_counter_last_tick <- cpu.timer_counter_last_tick + tick_interval;
         memory.io_registers.{0x05} <- memory.io_registers.{0x05} + 1;
         if memory.io_registers.{0x05} = 0x00 then (
           memory.io_registers.{0x05} <- memory.io_registers.{0x06};
@@ -81,19 +80,19 @@ let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
     memory.io_registers.{0x44} <- lcd_y;
     (* Check for interrupts *)
     let requested_and_enabled = memory.ram_high.{0x7f} land memory.io_registers.{0x0f} in
-    if requested_and_enabled <> 0 && cpu.int_master_enable (* FIXME: wrong, but necessary to get pokecrystal anywhere *) then (
-      (* Even if IME is unset, when an enabled interrupt is requested, un-halt.*)
+    (* Even if IME is unset, when an enabled interrupt is requested, un-halt.*)
+    if requested_and_enabled <> 0 then
       cpu.halted <- false;
-      if cpu.int_master_enable then (
-        (* Service interrupt *)
-        cpu.int_master_enable <- false;
-        Cpu.push_pc cpu memory;
-        let i = ref 0 in
-        while requested_and_enabled lsr !i land 0x01 = 0 do incr i done;
-        memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lxor 0x01 lsl !i;
-        cpu.program_ctr <- !i lsl 3 lor 0x40;
-        cpu.m_cycles <- cpu.m_cycles + 1
-      )
+    if requested_and_enabled <> 0 && cpu.interrupt_master_enable then (
+      (* Service interrupt *)
+      cpu.interrupt_master_enable <- false;
+      cpu.interrupt_master_enable_pending <- false;
+      Cpu.push_pc cpu memory;
+      let i = ref 0 in
+      while requested_and_enabled lsr !i land 0x01 = 0 do incr i done;
+      memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lxor 0x01 lsl !i;
+      cpu.program_ctr <- !i lsl 3 lor 0x40;
+      cpu.m_cycles <- cpu.m_cycles + 1
     ) else if cpu.halted then (
       cpu.m_cycles <- cpu.m_cycles + 1
     ) else (
@@ -104,6 +103,10 @@ let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
         Printf.eprintf " B = 0x%02x    C = 0x%02x    D = 0x%02x    E = 0x%02x\n" cpu.%{B} cpu.%{C} cpu.%{D} cpu.%{E};
         Printf.eprintf " H = 0x%02x    L = 0x%02x    A = 0x%02x    F = %s\n" cpu.%{H} cpu.%{L} cpu.%{A} (string_of_flags cpu);
         Printf.eprintf "SP = 0x%04x  PC = 0x%04x\n%!" cpu.stack_ptr cpu.program_ctr
+      );
+      if cpu.interrupt_master_enable_pending then (
+        cpu.interrupt_master_enable <- true;
+        cpu.interrupt_master_enable_pending <- false;
       );
       let opcode = read_8 cpu memory cpu.program_ctr in
       cpu.program_ctr <- cpu.program_ctr + 1;
