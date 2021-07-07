@@ -1,13 +1,13 @@
 let key_callback (cpu : Cpu.t) (memory : Memory.t) window key _(*scancode*) action _(*modifiers*) =
   let b = match key with
-    | GLFW.Kp6 -> 0x01
-    | Kp4 -> 0x02
-    | Kp8 -> 0x04
-    | Kp5 -> 0x08
-    | Kp7 -> 0x10
-    | Kp9 -> 0x20
-    | Kp0 -> 0x40
-    | Kp1 -> 0x80
+    | GLFW.Right -> 0x01
+    | Left -> 0x02
+    | Up -> 0x04
+    | Down -> 0x08
+    | PageUp -> 0x10
+    | PageDown -> 0x20
+    | Space -> 0x40
+    | Enter -> 0x80
     | Escape when action = GLFW.Press -> GLFW.setWindowShouldClose window true; -1
     | F1 when action = GLFW.Press -> Utils.trace := not !Utils.trace; -1
     | _ -> -1
