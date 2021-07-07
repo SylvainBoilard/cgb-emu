@@ -121,7 +121,7 @@ let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
         cpu.interrupt_master_enable <- true;
         cpu.interrupt_master_enable_pending <- false;
       );
-      execute cpu memory (read_8_immediate cpu memory)
+      execute cpu memory (read_8_immediate ~kind:Instruction cpu memory)
     )
   done
 
