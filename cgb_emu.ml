@@ -112,7 +112,7 @@ let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
       (* Execute next instruction *)
       let open Cpu in
       if !Utils.trace then (
-        Printf.eprintf "[%d M-cycles (%f s)]\n" cpu.m_cycles (float_of_int cpu.m_cycles /. float_of_int (1 lsl 20));
+        Printf.eprintf "[%d M-cycles; %f s]\n" cpu.m_cycles (float_of_int cpu.m_cycles /. float_of_int (1 lsl 20));
         Printf.eprintf " B = 0x%02x    C = 0x%02x    D = 0x%02x    E = 0x%02x\n" cpu.%{B} cpu.%{C} cpu.%{D} cpu.%{E};
         Printf.eprintf " H = 0x%02x    L = 0x%02x    A = 0x%02x    F = %s\n" cpu.%{H} cpu.%{L} cpu.%{A} (string_of_flags cpu);
         Printf.eprintf "SP = 0x%04x  PC = 0x%04x\n%!" cpu.stack_ptr cpu.program_ctr

@@ -142,7 +142,7 @@ let read_8 cpu memory addr =
   if !trace then Printf.eprintf "Read value 0x%02x at 0x%04x\n%!" value addr;
   value
 
-let read_16_le cpu memory addr =
+let read_16 cpu memory addr =
   read_8 cpu memory (addr + 1) lsl 8 lor read_8 cpu memory addr
 
 let write_8 cpu memory addr value =
@@ -255,7 +255,7 @@ let write_8 cpu memory addr value =
   | _ when addr >= 0xff80 -> memory.ram_high.{addr - 0xff80} <- value
   | _ -> Printf.eprintf "write_8: 0x%04x is outside implemented range (value = 0x%02x).\n%!" addr value
 
-let write_16_le cpu memory addr value =
+let write_16 cpu memory addr value =
   write_8 cpu memory addr value;
   write_8 cpu memory (addr + 1) (value lsr 8)
 
@@ -263,7 +263,7 @@ let execute_cb_prefixed cpu memory =
   let opcode = read_8 cpu memory cpu.program_ctr in
   cpu.program_ctr <- cpu.program_ctr + 1;
   let operand = match opcode land 0x07 with
-    | 0x6 -> read_8 cpu memory (cpu.%%{HL})
+    | 0x6 -> read_8 cpu memory cpu.%%{HL}
     | 0x7 -> cpu.%{A}
     | n -> cpu.registers.{n}
   in
@@ -294,9 +294,9 @@ let execute_cb_prefixed cpu memory =
     | '\x38'..'\x3f' ->
        change_flag cpu CarryFlag (operand land 0x01 <> 0);
        operand lsr 1
-    | '\x40'..'\x7f' -> operand land 0x01 lsl ((opcode lsr 3) land 0x7)
-    | '\x80'..'\xbf' -> operand land lnot (0x01 lsl ((opcode lsr 3) land 0x7))
-    | '\xc0'..'\xff' -> operand lor 0x01 lsl ((opcode lsr 3) land 0x7)
+    | '\x40'..'\x7f' -> operand land 0x01 lsl (opcode lsr 3 land 0x7)
+    | '\x80'..'\xbf' -> operand land lnot (0x01 lsl (opcode lsr 3 land 0x7))
+    | '\xc0'..'\xff' -> operand lor 0x01 lsl (opcode lsr 3 land 0x7)
   in
   if opcode < 0x80 then (
     change_flag cpu ZeroFlag (result = 0);
@@ -317,18 +317,18 @@ let jr cpu memory cond =
   ) else cpu.program_ctr <- cpu.program_ctr + 1
 
 let jp cpu memory cond =
-  let addr = read_16_le cpu memory cpu.program_ctr in
+  let addr = read_16 cpu memory cpu.program_ctr in
   if cond then (
     cpu.program_ctr <- addr;
     cpu.m_cycles <- cpu.m_cycles + 1
   ) else cpu.program_ctr <- cpu.program_ctr + 2
 
 let ld_rr_u16 cpu memory rr =
-  cpu.%%{rr} <- (read_16_le cpu memory cpu.program_ctr);
+  cpu.%%{rr} <- read_16 cpu memory cpu.program_ctr;
   cpu.program_ctr <- cpu.program_ctr + 2
 
 let ld_sp_u16 cpu memory =
-  cpu.stack_ptr <- (read_16_le cpu memory cpu.program_ctr);
+  cpu.stack_ptr <- read_16 cpu memory cpu.program_ctr;
   cpu.program_ctr <- cpu.program_ctr + 2
 
 let ld_r_addr cpu memory r addr =
@@ -389,18 +389,18 @@ let ld_r_u8 cpu memory r =
 
 let push_rr cpu memory rr =
   cpu.stack_ptr <- cpu.stack_ptr - 2;
-  write_16_le cpu memory cpu.stack_ptr cpu.%%{rr}
+  write_16 cpu memory cpu.stack_ptr cpu.%%{rr}
 
 let pop_rr cpu memory rr =
-  cpu.%%{rr} <- read_16_le cpu memory cpu.stack_ptr;
+  cpu.%%{rr} <- read_16 cpu memory cpu.stack_ptr;
   cpu.stack_ptr <- cpu.stack_ptr + 2
 
 let push_pc cpu memory =
   cpu.stack_ptr <- cpu.stack_ptr - 2;
-  write_16_le cpu memory cpu.stack_ptr cpu.program_ctr
+  write_16 cpu memory cpu.stack_ptr cpu.program_ctr
 
 let pop_pc cpu memory =
-  cpu.program_ctr <- read_16_le cpu memory cpu.stack_ptr;
+  cpu.program_ctr <- read_16 cpu memory cpu.stack_ptr;
   cpu.stack_ptr <- cpu.stack_ptr + 2
 
 let ret cpu memory cond =
@@ -410,7 +410,7 @@ let ret cpu memory cond =
   ) else cpu.m_cycles <- cpu.m_cycles + 1
 
 let call cpu memory cond =
-  let addr = read_16_le cpu memory cpu.program_ctr in
+  let addr = read_16 cpu memory cpu.program_ctr in
   cpu.program_ctr <- cpu.program_ctr + 2;
   if cond then (
     push_pc cpu memory;
@@ -425,7 +425,7 @@ let execute cpu memory opcode =
      Printf.eprintf "execute: illegal opcode 0x%02x at 0x%04x.\n%!" opcode (cpu.program_ctr - 1)
   | '\x00' -> ()
   | '\x08' ->
-     write_16_le cpu memory (read_16_le cpu memory cpu.program_ctr) cpu.stack_ptr;
+     write_16 cpu memory (read_16 cpu memory cpu.program_ctr) cpu.stack_ptr;
      cpu.program_ctr <- cpu.program_ctr + 2
   | '\x10' -> (* TODO: implement double speed support *)
      if memory.io_registers.{0x4d} land 0x01 <> 0 then (
@@ -632,11 +632,11 @@ let execute cpu memory opcode =
   | '\xda' -> jp cpu memory (get_flag cpu CarryFlag)
   | '\xe2' -> ld_addr_r cpu memory (0xff00 + cpu.%{C}) A
   | '\xea' ->
-     ld_addr_r cpu memory (read_16_le cpu memory cpu.program_ctr) A;
+     ld_addr_r cpu memory (read_16 cpu memory cpu.program_ctr) A;
      cpu.program_ctr <- cpu.program_ctr + 2
   | '\xf2' -> ld_r_addr cpu memory A (0xff00 + cpu.%{C})
   | '\xfa' ->
-     ld_r_addr cpu memory A (read_16_le cpu memory cpu.program_ctr);
+     ld_r_addr cpu memory A (read_16 cpu memory cpu.program_ctr);
      cpu.program_ctr <- cpu.program_ctr + 2
 
   | '\xc3' -> jp cpu memory true
@@ -680,4 +680,4 @@ let execute cpu memory opcode =
   | '\xc7' | '\xcf' | '\xd7' | '\xdf' | '\xe7' | '\xef' | '\xf7' | '\xff' ->
      push_pc cpu memory;
      cpu.program_ctr <- opcode land 0x38;
-     cpu.m_cycles <- cpu.m_cycles + 1;
+     cpu.m_cycles <- cpu.m_cycles + 1
