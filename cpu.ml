@@ -120,51 +120,47 @@ let perform_dma_step memory src dst size =
 
 let read_8 cpu memory addr =
   cpu.m_cycles <- cpu.m_cycles + 1;
-  let value =
-    match addr with
-    | _ when addr < 0x0 || addr >= 0x10000 -> invalid_arg "read_8: address out of range"
-    | _ when addr < 0x4000 -> memory.rom_0.{addr}
-    | _ when addr < 0x8000 -> memory.rom_n.{addr - 0x4000}
-    | _ when addr < 0xa000 -> memory.ram_video_n.{addr - 0x8000} (* TODO: inacessible during mode 3 *)
-    | _ when addr < 0xc000 ->
-       if not cpu.ext_ram_or_timer_enable
-       then 0
-       else if cpu.rtc_selected < 0
-       then memory.ram_ext_n.{addr - 0xa000}
-       else (
-         let now = if cpu.rtc_latched = -1 then int_of_float (Unix.time ()) else cpu.rtc_latched in
-         let delta = now - cpu.rtc_origin in
-         match cpu.rtc_selected with
-         | 0 -> delta mod 60
-         | 1 -> delta / 60 mod 60
-         | 2 -> delta / 60 / 60 mod 24
-         | 3 -> delta / 60 / 60 / 24 mod 256
-         | 4 -> delta / 60 / 60 / 24 / 256 mod 2 (* FIXME: implement halt and carry bits *)
-         | n -> Printf.eprintf "read_8: RTC register %d does not exist.\n%!" n; 0
-       )
-    | _ when addr < 0xd000 -> memory.ram_work_0.{addr - 0xc000}
-    | _ when addr < 0xe000 -> memory.ram_work_n.{addr - 0xd000}
-    | _ when addr < 0xf000 -> memory.ram_work_0.{addr - 0xe000} (* prohibited; mirror of 0xc000-0xcfff *)
-    | _ when addr < 0xfe00 -> memory.ram_work_n.{addr - 0xf000} (* prohibited; mirror of 0xd000-0xddff *)
-    | _ when addr < 0xfea0 -> memory.oam.{addr - 0xfe00} (* TODO: inacessible during mode 2 and 3 except by DMA *)
-    | _ when addr < 0xff00 -> 0 (* prohibited; 0xff during modes 2 and 3, can vary otherwise *)
-    | 0xff00 ->
-       memory.io_registers.{0x00}
-       land (if memory.io_registers.{0x00} land 0x10 = 0 then lnot (cpu.inputs land 0x0f) else 0xff)
-       land (if memory.io_registers.{0x00} land 0x20 = 0 then lnot (cpu.inputs lsr 4 land 0x0f) else 0xff)
-    | 0xff69 -> memory.bg_palette_data.{memory.io_registers.{0x68} land 0x3f} (* TODO: inacessible during mode 3 *)
-    | 0xff6b -> memory.obj_palette_data.{memory.io_registers.{0x6a} land 0x3f} (* TODO: inacessible during mode 3 *)
-    | 0xff04 | 0xff05 | 0xff06 | 0xff07 | 0xff0f
-      | 0xff40 | 0xff41 | 0xff42 | 0xff43 | 0xff44 | 0xff45 | 0xff46 | 0xff4a | 0xff4b | 0xff4d | 0xff4f
-      | 0xff51 | 0xff52 | 0xff53 | 0xff54 | 0xff55 | 0xff68 | 0xff6a | 0xff70 ->
-       memory.io_registers.{addr - 0xff00}
-    | 0xff47 | 0xff48 | 0xff49 -> memory.io_registers.{addr - 0xff00} (* SILENCE: Grayscale palettes *)
-    | _ when addr >= 0xff10 && addr < 0xff40 -> memory.io_registers.{addr - 0xff00} (* SILENCE: sound *)
-    | _ when addr >= 0xff80 -> memory.ram_high.{addr - 0xff80}
-    | _ -> Printf.eprintf "read_8: 0x%04x is outside implemented range.\n%!" addr; 0
-  in
-  if !trace then Printf.eprintf "Read value 0x%02x at 0x%04x\n%!" value addr;
-  value
+  match addr with
+  | _ when addr < 0x0 || addr >= 0x10000 -> invalid_arg "read_8: address out of range"
+  | _ when addr < 0x4000 -> memory.rom_0.{addr}
+  | _ when addr < 0x8000 -> memory.rom_n.{addr - 0x4000}
+  | _ when addr < 0xa000 -> memory.ram_video_n.{addr - 0x8000} (* TODO: inacessible during mode 3 *)
+  | _ when addr < 0xc000 ->
+     if not cpu.ext_ram_or_timer_enable
+     then 0
+     else if cpu.rtc_selected < 0
+     then memory.ram_ext_n.{addr - 0xa000}
+     else (
+       let now = if cpu.rtc_latched = -1 then int_of_float (Unix.time ()) else cpu.rtc_latched in
+       let delta = now - cpu.rtc_origin in
+       match cpu.rtc_selected with
+       | 0 -> delta mod 60
+       | 1 -> delta / 60 mod 60
+       | 2 -> delta / 60 / 60 mod 24
+       | 3 -> delta / 60 / 60 / 24 mod 256
+       | 4 -> delta / 60 / 60 / 24 / 256 mod 2 (* FIXME: implement halt and carry bits *)
+       | n -> Printf.eprintf "read_8: RTC register %d does not exist.\n%!" n; 0
+     )
+  | _ when addr < 0xd000 -> memory.ram_work_0.{addr - 0xc000}
+  | _ when addr < 0xe000 -> memory.ram_work_n.{addr - 0xd000}
+  | _ when addr < 0xf000 -> memory.ram_work_0.{addr - 0xe000} (* prohibited; mirror of 0xc000-0xcfff *)
+  | _ when addr < 0xfe00 -> memory.ram_work_n.{addr - 0xf000} (* prohibited; mirror of 0xd000-0xddff *)
+  | _ when addr < 0xfea0 -> memory.oam.{addr - 0xfe00} (* TODO: inacessible during mode 2 and 3 except by DMA *)
+  | _ when addr < 0xff00 -> 0 (* prohibited; 0xff during modes 2 and 3, can vary otherwise *)
+  | 0xff00 ->
+     memory.io_registers.{0x00}
+     land (if memory.io_registers.{0x00} land 0x10 = 0 then lnot (cpu.inputs land 0x0f) else 0xff)
+     land (if memory.io_registers.{0x00} land 0x20 = 0 then lnot (cpu.inputs lsr 4 land 0x0f) else 0xff)
+  | 0xff69 -> memory.bg_palette_data.{memory.io_registers.{0x68} land 0x3f} (* TODO: inacessible during mode 3 *)
+  | 0xff6b -> memory.obj_palette_data.{memory.io_registers.{0x6a} land 0x3f} (* TODO: inacessible during mode 3 *)
+  | 0xff04 | 0xff05 | 0xff06 | 0xff07 | 0xff0f
+    | 0xff40 | 0xff41 | 0xff42 | 0xff43 | 0xff44 | 0xff45 | 0xff46 | 0xff4a | 0xff4b | 0xff4d | 0xff4f
+    | 0xff51 | 0xff52 | 0xff53 | 0xff54 | 0xff55 | 0xff68 | 0xff6a | 0xff70 ->
+     memory.io_registers.{addr - 0xff00}
+  | 0xff47 | 0xff48 | 0xff49 -> memory.io_registers.{addr - 0xff00} (* SILENCE: Grayscale palettes *)
+  | _ when addr >= 0xff10 && addr < 0xff40 -> memory.io_registers.{addr - 0xff00} (* SILENCE: sound *)
+  | _ when addr >= 0xff80 -> memory.ram_high.{addr - 0xff80}
+  | _ -> Printf.eprintf "read_8: 0x%04x is outside implemented range.\n%!" addr; 0
 
 let read_8_immediate ?(kind=Data) cpu memory =
   let addr = cpu.program_ctr in
@@ -191,7 +187,6 @@ let read_16_immediate cpu memory =
   read_8_immediate cpu memory lsl 8 lor low
 
 let write_8 cpu memory addr value =
-  if !trace then Printf.eprintf "Write value 0x%02x at 0x%04x\n%!" (value land 0xff) addr;
   cpu.m_cycles <- cpu.m_cycles + 1;
   match addr with
   | _ when addr < 0x0 || addr >= 0x10000 -> invalid_arg "write_8: address out of range"
@@ -458,9 +453,7 @@ let call cpu memory cond =
     cpu.m_cycles <- cpu.m_cycles + 1
   )
 
-let execute cpu memory opcode =
-  if !trace then Printf.eprintf "Executing opcode 0x%02x at 0x%04x\n%!" opcode (cpu.program_ctr - 1);
-  match Char.chr opcode with
+let execute cpu memory opcode = match Char.chr opcode with
   | '\xd3' | '\xdb' | '\xdd' | '\xe3' | '\xe4' | '\xeb'..'\xed' | '\xf4' | '\xfc' | '\xfd' ->
      Printf.eprintf "execute: illegal opcode 0x%02x at 0x%04x.\n%!" opcode (cpu.program_ctr - 1)
   | '\x00' -> ()

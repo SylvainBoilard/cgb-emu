@@ -1,5 +1,3 @@
-let trace = ref false
-
 let load_program directory name =
   let filename_prefix = Printf.sprintf "%s/%s" directory name in
   let load_shader kind ext =

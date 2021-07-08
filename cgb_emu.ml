@@ -4,12 +4,11 @@ let key_callback (cpu : Cpu.t) (memory : Memory.t) window key _(*scancode*) acti
     | Left -> 0x02
     | Up -> 0x04
     | Down -> 0x08
-    | PageUp -> 0x10
-    | PageDown -> 0x20
+    | PageUp | Home -> 0x10
+    | PageDown | End -> 0x20
     | Space -> 0x40
     | Enter -> 0x80
     | Escape when action = GLFW.Press -> GLFW.setWindowShouldClose window true; -1
-    | F1 when action = GLFW.Press -> Utils.trace := not !Utils.trace; -1
     | _ -> -1
   in
   match action with
@@ -110,18 +109,11 @@ let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
       cpu.m_cycles <- cpu.m_cycles + 1
     ) else (
       (* Execute next instruction *)
-      let open Cpu in
-      if !Utils.trace then (
-        Printf.eprintf "[%d M-cycles; %f s]\n" cpu.m_cycles (float_of_int cpu.m_cycles /. float_of_int (1 lsl 20));
-        Printf.eprintf " B = 0x%02x    C = 0x%02x    D = 0x%02x    E = 0x%02x\n" cpu.%{B} cpu.%{C} cpu.%{D} cpu.%{E};
-        Printf.eprintf " H = 0x%02x    L = 0x%02x    A = 0x%02x    F = %s\n" cpu.%{H} cpu.%{L} cpu.%{A} (string_of_flags cpu);
-        Printf.eprintf "SP = 0x%04x  PC = 0x%04x\n%!" cpu.stack_ptr cpu.program_ctr
-      );
       if cpu.interrupt_master_enable_pending then (
         cpu.interrupt_master_enable <- true;
         cpu.interrupt_master_enable_pending <- false;
       );
-      execute cpu memory (read_8_immediate ~kind:Instruction cpu memory)
+      Cpu.(execute cpu memory (read_8_immediate ~kind:Instruction cpu memory))
     )
   done
 
