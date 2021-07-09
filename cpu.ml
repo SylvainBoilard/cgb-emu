@@ -76,10 +76,10 @@ let set_flag cpu = function
   | CarryFlag -> cpu.%{F} <- cpu.%{F} lor 0x10
 
 let reset_flag cpu = function
-  | ZeroFlag -> cpu.%{F} <- cpu.%{F} land lnot 0x80
-  | SubtractionFlag -> cpu.%{F} <- cpu.%{F} land lnot 0x40
-  | HalfCarryFlag -> cpu.%{F} <- cpu.%{F} land lnot 0x20
-  | CarryFlag -> cpu.%{F} <- cpu.%{F} land lnot 0x10
+  | ZeroFlag -> cpu.%{F} <- cpu.%{F} land lnot 0x8f
+  | SubtractionFlag -> cpu.%{F} <- cpu.%{F} land lnot 0x4f
+  | HalfCarryFlag -> cpu.%{F} <- cpu.%{F} land lnot 0x2f
+  | CarryFlag -> cpu.%{F} <- cpu.%{F} land lnot 0x1f
 
 let change_flag cpu flag = function
   | true -> set_flag cpu flag
@@ -428,7 +428,8 @@ let push_rr cpu memory rr =
   write_16 cpu memory cpu.stack_ptr cpu.%%{rr}
 
 let pop_rr cpu memory rr =
-  cpu.%%{rr} <- read_16 cpu memory cpu.stack_ptr;
+  let value = read_16 cpu memory cpu.stack_ptr in
+  cpu.%%{rr} <- (if rr = AF then value land 0xfff0 else value);
   cpu.stack_ptr <- cpu.stack_ptr + 2
 
 let push_pc cpu memory =
