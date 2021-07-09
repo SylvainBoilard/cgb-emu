@@ -2,30 +2,6 @@ open Utils
 open Bigarray
 open Memory
 
-type data_kind = Undecided | Instruction | Data
-external int_of_data_kind : data_kind -> int = "%identity"
-
-let data_kind_of_int = function
-  | 0 -> Undecided
-  | 1 -> Instruction
-  | 2 -> Data
-  | _ -> invalid_arg "data_kind_of_int"
-
-let string_of_data_kind = function
-  | Undecided -> "Undecided"
-  | Instruction -> "Instruction"
-  | Data -> "Data"
-
-let data_kinds_by_bank = ref []
-
-let get_data_kinds_for_bank bank =
-  try List.assq bank !data_kinds_by_bank
-  with Not_found ->
-    let data_kinds = Array1.create Int8_unsigned C_layout 0x4000 in
-    Array1.fill data_kinds (int_of_data_kind Undecided);
-    data_kinds_by_bank := (bank, data_kinds) :: !data_kinds_by_bank;
-    data_kinds
-
 type t = {
     registers: (int, int8_unsigned_elt, c_layout) Array1.t; (* BC DE HL A(znhc----) *)
     mutable program_ctr: int;
@@ -164,20 +140,8 @@ let read_8 cpu memory addr =
   | _ when addr >= 0xff80 -> memory.ram_high.{addr - 0xff80}
   | _ -> Printf.eprintf "read_8: 0x%04x is outside implemented range.\n%!" addr; 0
 
-let read_8_immediate ?(kind=Data) cpu memory =
+let read_8_immediate cpu memory =
   let addr = cpu.program_ctr in
-  if addr < 0x8000 then (
-    let data_kinds =
-      if addr < 0x4000
-      then get_data_kinds_for_bank memory.rom_0
-      else get_data_kinds_for_bank memory.rom_n
-    in
-    let current_kind = data_kind_of_int data_kinds.{addr land 0x3fff} in
-    if current_kind <> Undecided && current_kind <> kind then
-      Printf.eprintf "Data kind at address 0x%04x changed from %s to %s.\n%!"
-        addr (string_of_data_kind current_kind) (string_of_data_kind kind);
-    data_kinds.{addr land 0x3fff} <- int_of_data_kind kind
-  );
   cpu.program_ctr <- addr + 1;
   read_8 cpu memory addr
 
