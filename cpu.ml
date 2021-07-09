@@ -269,14 +269,14 @@ let write_8 cpu memory addr value =
   | 0xff53 (* DMA Destination, high *) -> memory.io_registers.{0x53} <- value
   | 0xff54 (* DMA Destination, low *) -> memory.io_registers.{0x54} <- value
   | 0xff55 (* DMA Control *) ->
-     if value land 0x80 <> 0 then (* hblank DMA *)
+     if value land 0x80 <> 0 then (* HBlank DMA *)
        memory.io_registers.{0x55} <- value land 0x7f
-     else if memory.io_registers.{0x55} land 0x80 = 0 then (* terminate hblank DMA *)
+     else if memory.io_registers.{0x55} land 0x80 = 0 then (* terminate HBlank DMA *)
        memory.io_registers.{0x55} <- memory.io_registers.{0x55} lor 0x80
      else ( (* immediate DMA *)
        let src = memory.io_registers.{0x51} lsl 8 lor memory.io_registers.{0x52} in
        let dst = memory.io_registers.{0x53} lsl 8 lor memory.io_registers.{0x54} in
-       let length = (value land 0x7f) lsl 4 + 1 in
+       let length = (value land 0x7f + 1) lsl 4 in
        perform_dma_step memory src dst length;
        cpu.m_cycles <- cpu.m_cycles + length / 2;
        memory.io_registers.{0x55} <- 0xff
