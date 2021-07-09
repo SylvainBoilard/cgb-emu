@@ -151,6 +151,8 @@ let read_8 cpu memory addr =
      memory.io_registers.{0x00}
      land (if memory.io_registers.{0x00} land 0x10 = 0 then lnot (cpu.inputs land 0x0f) else 0xff)
      land (if memory.io_registers.{0x00} land 0x20 = 0 then lnot (cpu.inputs lsr 4 land 0x0f) else 0xff)
+  | 0xff01 | 0xff02 -> memory.io_registers.{addr - 0xff00} (* SILENCE: serial port *)
+  | 0xff56 -> memory.io_registers.{addr - 0xff00} (* SILENCE: infrared port *)
   | 0xff69 -> memory.bg_palette_data.{memory.io_registers.{0x68} land 0x3f} (* TODO: inacessible during mode 3 *)
   | 0xff6b -> memory.obj_palette_data.{memory.io_registers.{0x6a} land 0x3f} (* TODO: inacessible during mode 3 *)
   | 0xff04 | 0xff05 | 0xff06 | 0xff07 | 0xff0f
@@ -226,7 +228,8 @@ let write_8 cpu memory addr value =
   | _ when addr < 0xfe00 -> memory.ram_work_n.{addr - 0xf000} <- value (* prohibited; mirror of 0xd000-0xddff *)
   | _ when addr < 0xfea0 -> memory.oam.{addr - 0xfe00} <- value (* TODO: inacessible during mode 2 and 3 *)
   | _ when addr < 0xff00 -> () (* prohibited *)
-  | 0xff00 (* Inputs *) -> memory.io_registers.{0x00} <- value lor lnot 0x30;
+  | 0xff00 (* Inputs *) -> memory.io_registers.{0x00} <- value lor lnot 0x30
+  | 0xff01 | 0xff02 (* Serial port *) -> () (* SILENCE: serial port *)
   | 0xff04 (* Divider Register *) ->
      cpu.divider_register_last_tick <- cpu.m_cycles;
      cpu.timer_counter_last_tick <- cpu.m_cycles;
@@ -278,6 +281,7 @@ let write_8 cpu memory addr value =
        cpu.m_cycles <- cpu.m_cycles + length / 2;
        memory.io_registers.{0x55} <- 0xff
      )
+  | 0xff56 (* Infrared Port *) -> () (* SILENCE: infrared port *)
   | 0xff68 (* Color BG Palette Index *) -> memory.io_registers.{0x68} <- value
   | 0xff69 (* Color BG Palette Data *) -> (* TODO: inacessible during mode 3 *)
      let bgpi = memory.io_registers.{0x68} in
