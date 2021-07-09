@@ -1,4 +1,4 @@
-let key_callback (cpu : Cpu.t) (memory : Memory.t) window key _(*scancode*) action _(*modifiers*) =
+let record_gb_input (cpu : Cpu.t) (memory : Memory.t) key action =
   let b = match key with
     | GLFW.Right -> 0x01
     | Left -> 0x02
@@ -8,18 +8,25 @@ let key_callback (cpu : Cpu.t) (memory : Memory.t) window key _(*scancode*) acti
     | PageDown | End -> 0x20
     | Space -> 0x40
     | Enter -> 0x80
-    | Escape when action = GLFW.Press -> GLFW.setWindowShouldClose window true; -1
     | _ -> -1
   in
   match action with
-  | _ when b < 0 -> ()
+  | _ when b < 0 -> false
   | GLFW.Press ->
      cpu.inputs <- cpu.inputs lor b;
      if memory.io_registers.{0x00} land 0x10 = 0 && b land 0x0f <> 0
         || memory.io_registers.{0x00} land 0x20 = 0 && b land 0xf0 <> 0
-     then memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x10
-  | Release -> cpu.inputs <- cpu.inputs land lnot b
-  | Repeat -> ()
+     then memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x10;
+     true
+  | Release -> cpu.inputs <- cpu.inputs land lnot b; true
+  | Repeat -> false
+
+let key_callback (cpu : Cpu.t) (memory : Memory.t) tiles_window current_window key _(*scancode*) action _(*modifiers*) =
+  match key, action with
+  | _ when record_gb_input cpu memory key action -> ()
+  | GLFW.Escape, GLFW.Press -> GLFW.setWindowShouldClose current_window true
+  | F2, Press -> GLFW.showWindow tiles_window
+  | _ -> ()
 
 let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
   let next_vblank = cpu.m_cycles - (cpu.m_cycles + 1140) mod 17556 + 17556 in
@@ -127,19 +134,32 @@ let () =
   GLFW.windowHint GLFW.ContextVersionMajor 2;
   GLFW.windowHint GLFW.ContextVersionMinor 0;
   GLFW.windowHint GLFW.Resizable false;
-  (* let window = GLFW.createWindow 960 864 "cgb_emu" () in *)
-  let window = GLFW.createWindow 480 432 "cgb_emu" () in
-  GLFW.makeContextCurrent (Some window);
+  let lcd_window = GLFW.createWindow 480 432 "cgb_emu" () in
+  GLFW.makeContextCurrent (Some lcd_window);
+  GLFW.windowHint GLFW.Visible false;
+  let tiles_window = GLFW.createWindow ~width:512 ~height:384 ~title:"cgb_emu – tiles" ~share:lcd_window () in
   let cpu = Cpu.create () in
   let memory = Unix.handle_unix_error Memory.init_from_rom Sys.argv.(1) in
   let lcd = Lcd.create () in
-  GLFW.setKeyCallback window (Some (key_callback cpu memory)) |> ignore;
+  GLFW.setKeyCallback lcd_window (Some (key_callback cpu memory tiles_window)) |> ignore;
+  GLFW.setWindowPos lcd_window 8 84;
+  GLFW.setKeyCallback tiles_window (Some (key_callback cpu memory tiles_window)) |> ignore;
+  GLFW.setWindowPos tiles_window 504 108;
   let start_real_time = GLFW.getTime () in
   let start_cpu_time = Sys.time () in
-  while not (GLFW.windowShouldClose window) do
+  while not (GLFW.windowShouldClose lcd_window) do
     run_until_vblank cpu memory lcd;
     Lcd.render_frame lcd;
-    GLFW.swapBuffers window;
+    GLFW.swapBuffers lcd_window;
+    if GLFW.windowShouldClose tiles_window then (
+      GLFW.setWindowShouldClose tiles_window false;
+      GLFW.hideWindow tiles_window
+    ) else if GLFW.getWindowAttrib ~window:tiles_window ~attribute:GLFW.Visible then (
+      GLFW.makeContextCurrent (Some tiles_window);
+      Lcd.render_tiles lcd memory;
+      GLFW.swapBuffers tiles_window;
+      GLFW.makeContextCurrent (Some lcd_window)
+    );
     GLFW.pollEvents ()
   done;
   let finish_real_time = GLFW.getTime () in
@@ -148,5 +168,6 @@ let () =
     cpu.m_cycles (finish_real_time -. start_real_time)
     (float_of_int cpu.m_cycles /. float_of_int (17556 * 60))
     (finish_cpu_time -. start_cpu_time);
-  GLFW.destroyWindow window;
+  GLFW.destroyWindow lcd_window;
+  GLFW.destroyWindow tiles_window;
   GLFW.terminate ()

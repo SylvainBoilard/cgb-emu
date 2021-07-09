@@ -6,6 +6,7 @@ type t = {
     program : GL.program;
     vertex_buffer : GL.buffer;
     lcd_texture : GL.texture;
+    tiles_texture : GL.texture;
     line_data : (int, int16_unsigned_elt, c_layout) Array1.t;
     vertex_position_attrib_pos : GL.attrib_location;
     vertex_texture_coords_attrib_pos : GL.attrib_location;
@@ -30,8 +31,13 @@ let create () =
   GL.texImage2D GL.Texture2D 0 GL.RGBA 160 144 0 GL.RGBA GL.UnsignedShort5551;
   GL.texParameter GL.Texture2D GL.MinFilter GL.Nearest;
   GL.texParameter GL.Texture2D GL.MagFilter GL.Nearest;
+  let tiles_texture = GL.genTexture () in
+  GL.bindTexture GL.Texture2D tiles_texture;
+  GL.texImage2D GL.Texture2D 0 GL.Luminance 256 196 0 GL.Luminance GL.UnsignedByte;
+  GL.texParameter GL.Texture2D GL.MinFilter GL.Nearest;
+  GL.texParameter GL.Texture2D GL.MagFilter GL.Nearest;
   let line_data = Array1.create Int16_unsigned C_layout 160 in
-  { program; vertex_buffer; lcd_texture; line_data;
+  { program; vertex_buffer; lcd_texture; tiles_texture; line_data;
     vertex_position_attrib_pos = GL.getAttribLocation program "VertexPosition";
     vertex_texture_coords_attrib_pos = GL.getAttribLocation program "VertexTextureCoords";
     texture_uniform_pos = GL.getUniformLocation program "LcdTexture" }
@@ -127,6 +133,7 @@ let render_line lcd memory lcd_y =
     for lcd_x = 0 to 159 do
       lcd.line_data.{lcd_x} <- render_pixel lcd_x lsl 1
     done;
+  GL.bindTexture GL.Texture2D lcd.lcd_texture;
   GL.texSubImage2D GL.Texture2D 0 0 lcd_y GL.RGBA GL.UnsignedShort5551 (reshape_2 (genarray_of_array1 lcd.line_data) 1 160)
 
 let render_frame lcd =
@@ -141,4 +148,39 @@ let render_frame lcd =
   GL.enableVertexAttribArray lcd.vertex_texture_coords_attrib_pos;
   GL.drawArrays GL.TriangleFan 0 4;
   GL.disableVertexAttribArray lcd.vertex_texture_coords_attrib_pos;
-  GL.disableVertexAttribArray lcd.vertex_position_attrib_pos;
+  GL.disableVertexAttribArray lcd.vertex_position_attrib_pos
+
+let render_tiles lcd memory =
+  let line_data = Array1.create Int8_unsigned C_layout 128 in
+  GL.bindTexture GL.Texture2D lcd.tiles_texture;
+  for bank = 0 to 1 do
+    let vram = memory.ram_video_banks.(bank) in
+    for l = 0 to 23 do
+      for y = 0 to 7 do
+        for c = 0 to 15 do
+          let tile_offset = (l * 16 + c) * 16 + y * 2 in
+          let low = vram.{tile_offset} in
+          let high = vram.{tile_offset + 1} in
+          let base_offset = c * 8 in
+          for x = 0 to 7 do
+            let shift = 7 - x in
+            let color_index = (high lsr shift land 0x01) lsl 1 lor (low lsr shift land 0x01) in
+            line_data.{base_offset + x} <- 0x55 * color_index
+          done
+        done;
+        GL.texSubImage2D GL.Texture2D 0 (128 * bank) (l * 8 + y) GL.Luminance GL.UnsignedByte (reshape_2 (genarray_of_array1 line_data) 1 128)
+      done
+    done
+  done;
+  GL.useProgram lcd.program;
+  GL.activeTexture 1;
+  GL.bindTexture GL.Texture2D lcd.tiles_texture;
+  GL.uniform1i lcd.texture_uniform_pos 1;
+  GL.bindBuffer GL.ArrayBuffer lcd.vertex_buffer;
+  GL.vertexAttribPointer lcd.vertex_position_attrib_pos 2 GL.Float false 16 0;
+  GL.enableVertexAttribArray lcd.vertex_position_attrib_pos;
+  GL.vertexAttribPointer lcd.vertex_texture_coords_attrib_pos 2 GL.Float false 16 8;
+  GL.enableVertexAttribArray lcd.vertex_texture_coords_attrib_pos;
+  GL.drawArrays GL.TriangleFan 0 4;
+  GL.disableVertexAttribArray lcd.vertex_texture_coords_attrib_pos;
+  GL.disableVertexAttribArray lcd.vertex_position_attrib_pos
