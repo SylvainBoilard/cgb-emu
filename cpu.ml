@@ -342,7 +342,7 @@ let execute_cb_prefixed cpu memory =
     | '\xc0'..'\xff' -> operand lor 0x01 lsl (opcode lsr 3 land 0x7)
   in
   if opcode < 0x80 then (
-    change_flag cpu ZeroFlag (result = 0);
+    change_flag cpu ZeroFlag (result land 0xff = 0);
     reset_flag cpu SubtractionFlag;
     change_flag cpu HalfCarryFlag (opcode >= 0x40)
   );
@@ -413,7 +413,7 @@ let decr_sp cpu =
 let incr_r cpu r =
   let result = cpu.%{r} + 1 in
   cpu.%{r} <- result;
-  change_flag cpu ZeroFlag (result = 0);
+  change_flag cpu ZeroFlag (result = 0x100);
   reset_flag cpu SubtractionFlag;
   change_flag cpu HalfCarryFlag (result >= 0x10)
 
@@ -524,7 +524,7 @@ let execute cpu memory opcode = match Char.chr opcode with
      let addr = cpu.%%{HL} in
      let result = read_8 cpu memory addr + 1 in
      write_8 cpu memory addr result;
-     change_flag cpu ZeroFlag (result = 0);
+     change_flag cpu ZeroFlag (result = 0x100);
      reset_flag cpu SubtractionFlag;
      change_flag cpu HalfCarryFlag (result >= 0x10)
   | '\x3c' -> incr_r cpu A
@@ -613,7 +613,7 @@ let execute cpu memory opcode = match Char.chr opcode with
        | _ -> assert false
      in
      if operator <> 0x7 then cpu.%{A} <- result;
-     change_flag cpu ZeroFlag (result = 0);
+     change_flag cpu ZeroFlag (result land 0xff = 0);
      change_flag cpu SubtractionFlag (match operator with 0x2 | 0x3 | 0x7 -> true | _ -> false);
      change_flag cpu HalfCarryFlag (match operator with 0x4 -> true | 0x5 | 0x6 -> false | _ -> result >= 0x10);
      change_flag cpu CarryFlag (result >= 256 || result < 0)
@@ -696,7 +696,7 @@ let execute cpu memory opcode = match Char.chr opcode with
        | _ -> assert false
      in
      if operator <> 0x7 then cpu.%{A} <- result;
-     change_flag cpu ZeroFlag (result = 0);
+     change_flag cpu ZeroFlag (result land 0xff = 0);
      change_flag cpu SubtractionFlag (match operator with 0x2 | 0x3 | 0x7 -> true | _ -> false);
      change_flag cpu HalfCarryFlag (match operator with 0x4 -> true | 0x5 | 0x6 -> false | _ -> result >= 16);
      change_flag cpu CarryFlag (result >= 256 || result < 0)
