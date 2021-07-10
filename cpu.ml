@@ -157,7 +157,7 @@ let write_8 cpu memory addr value =
   match addr with
   | _ when addr < 0x0 || addr >= 0x10000 -> invalid_arg "write_8: address out of range"
   | _ when addr < 0x2000 -> cpu.ext_ram_or_timer_enable <- value land 0x0f = 0x0a
-  | _ when addr < 0x4000 -> memory.rom_n <- memory.rom_banks.(max 1 value land 0x7f)
+  | _ when addr < 0x4000 -> memory.rom_n <- memory.rom_banks.(max 1 (value land 0x7f))
   | _ when addr < 0x6000 ->
      if value land 0x08 = 0 then (
        cpu.rtc_selected <- -1;
@@ -519,17 +519,29 @@ let execute cpu memory opcode = match Char.chr opcode with
 
   | '\x07' ->
      let c = if get_flag cpu CarryFlag then 0x01 else 0x00 in
+     reset_flag cpu ZeroFlag;
+     reset_flag cpu SubtractionFlag;
+     reset_flag cpu HalfCarryFlag;
      change_flag cpu CarryFlag (cpu.%{A} land 0x80 <> 0);
      cpu.%{A} <- cpu.%{A} lsl 1 lor c
   | '\x0f' ->
      let c = if get_flag cpu CarryFlag then 0x80 else 0x00 in
+     reset_flag cpu ZeroFlag;
+     reset_flag cpu SubtractionFlag;
+     reset_flag cpu HalfCarryFlag;
      change_flag cpu CarryFlag (cpu.%{A} land 0x01 <> 0);
      cpu.%{A} <- c lor cpu.%{A} lsr 1
   | '\x17' ->
      change_flag cpu CarryFlag (cpu.%{A} land 0x80 <> 0);
+     reset_flag cpu ZeroFlag;
+     reset_flag cpu SubtractionFlag;
+     reset_flag cpu HalfCarryFlag;
      cpu.%{A} <- cpu.%{A} lsl 1 lor cpu.%{A} lsr 7
   | '\x1f' ->
      change_flag cpu CarryFlag (cpu.%{A} land 0x01 <> 0);
+     reset_flag cpu ZeroFlag;
+     reset_flag cpu SubtractionFlag;
+     reset_flag cpu HalfCarryFlag;
      cpu.%{A} <- cpu.%{A} lsl 7 lor cpu.%{A} lsr 1
   | '\x27' -> Printf.eprintf "execute: unimplemented opcode 0x%02x at 0x%04x\n%!" opcode (cpu.program_ctr - 1) (* TODO: DAA *)
   | '\x2f' ->
