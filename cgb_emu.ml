@@ -22,10 +22,12 @@ let record_gb_input (cpu : Cpu.t) (memory : Memory.t) key action =
   | Repeat -> false
 
 let key_callback (cpu : Cpu.t) (memory : Memory.t) tiles_window current_window key _(*scancode*) action _(*modifiers*) =
+  let open GLFW in
   match key, action with
   | _ when record_gb_input cpu memory key action -> ()
-  | GLFW.Escape, GLFW.Press -> GLFW.setWindowShouldClose current_window true
-  | F2, Press -> GLFW.showWindow tiles_window
+  | Escape, Press -> setWindowShouldClose current_window true
+  | F2, Press when getWindowAttrib ~window:tiles_window ~attribute:Visible -> hideWindow tiles_window
+  | F2, Press -> showWindow tiles_window
   | _ -> ()
 
 let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
@@ -147,20 +149,17 @@ let () =
   GLFW.setWindowPos tiles_window 504 108;
   let start_real_time = GLFW.getTime () in
   let start_cpu_time = Sys.time () in
-  while not (GLFW.windowShouldClose lcd_window) do
+  while not (GLFW.windowShouldClose lcd_window || GLFW.windowShouldClose tiles_window) do
     run_until_vblank cpu memory lcd;
+    GLFW.pollEvents ();
     Lcd.render_frame lcd;
     GLFW.swapBuffers lcd_window;
-    if GLFW.windowShouldClose tiles_window then (
-      GLFW.setWindowShouldClose tiles_window false;
-      GLFW.hideWindow tiles_window
-    ) else if GLFW.getWindowAttrib ~window:tiles_window ~attribute:GLFW.Visible then (
+    if GLFW.getWindowAttrib ~window:tiles_window ~attribute:GLFW.Visible then (
       GLFW.makeContextCurrent (Some tiles_window);
       Lcd.render_tiles lcd memory;
       GLFW.swapBuffers tiles_window;
       GLFW.makeContextCurrent (Some lcd_window)
-    );
-    GLFW.pollEvents ()
+    )
   done;
   let finish_real_time = GLFW.getTime () in
   let finish_cpu_time = Sys.time () in
