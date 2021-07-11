@@ -1,0 +1,8 @@
+(env
+ (dev
+  (flags (:standard -w -6 -warn-error -a+31))))
+
+(executable
+ (name cgb_emu)
+ (libraries bigarray unix glfw-ocaml gl)
+ (promote (until-clean) (into ..)))

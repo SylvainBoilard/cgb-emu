@@ -1,10 +1,1 @@
-(env
- (dev
-  (flags (:standard -w -6 -warn-error -a+31))))
-
 (data_only_dirs roms)
-
-(executable
- (name cgb_emu)
- (libraries bigarray unix glfw-ocaml gl)
- (promote (until-clean)))
