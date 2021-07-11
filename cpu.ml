@@ -16,8 +16,7 @@ type t = {
     mutable inputs: int;
     mutable ext_ram_or_timer_enable: bool;
     mutable rtc_selected: int;
-    mutable rtc_latched: int;
-    mutable rtc_origin: int;
+    mutable rtc_latched: int64;
   }
 
 type register = B | C | D | E | H | L | A | F
@@ -82,7 +81,7 @@ let create () =
     interrupt_master_enable = true; interrupt_master_enable_pending = false; halted = false;
     divider_register_last_tick = 0; timer_counter_last_tick = 0;
     inputs = 0; ext_ram_or_timer_enable = false;
-    rtc_selected = -1; rtc_latched = -1; rtc_origin = int_of_float (Unix.time ()) }
+    rtc_selected = -1; rtc_latched = -1L }
 
 let perform_dma_step memory src dst size =
   let dst_sub = Array1.sub memory.ram_video_n (dst land 0x1ff0) size in
@@ -107,8 +106,10 @@ let read_8 cpu memory addr =
      else if cpu.rtc_selected < 0
      then memory.ram_ext_n.{addr - 0xa000}
      else (
-       let now = if cpu.rtc_latched = -1 then int_of_float (Unix.time ()) else cpu.rtc_latched in
-       let delta = now - cpu.rtc_origin in
+       let open Int64 in
+       let now = if cpu.rtc_latched = -1L then of_float (Unix.time ()) else cpu.rtc_latched in
+       let rtc_origin = get_persistent_field memory RTC_Origin in
+       let delta = to_int (sub now rtc_origin) in
        match cpu.rtc_selected with
        | 0 -> delta mod 60
        | 1 -> delta / 60 mod 60
@@ -165,27 +166,32 @@ let write_8 cpu memory addr value =
      ) else cpu.rtc_selected <- value land 0x07
   | _ when addr < 0x8000 ->
      if value land 0x01 = 0
-     then cpu.rtc_latched <- -1
-     else if cpu.rtc_latched = -1
-     then cpu.rtc_latched <- int_of_float (Unix.time ())
+     then cpu.rtc_latched <- -1L
+     else if cpu.rtc_latched = -1L
+     then cpu.rtc_latched <- Int64.of_float (Unix.time ())
   | _ when addr < 0xa000 -> memory.ram_video_n.{addr - 0x8000} <- value (* TODO: inacessible during mode 3 *)
   | _ when addr < 0xc000 ->
      if not cpu.ext_ram_or_timer_enable
      then ()
      else if cpu.rtc_selected < 0
      then memory.ram_ext_n.{addr - 0xa000} <- value
-     else (
-       let now = int_of_float (Unix.time ()) in
-       let delta = now - cpu.rtc_origin in
-       match cpu.rtc_selected with
-       | 0 -> cpu.rtc_origin <- cpu.rtc_origin + delta mod 60 - value mod 60
-       | 1 -> cpu.rtc_origin <- cpu.rtc_origin + (delta / 60 mod 60 - value mod 60) * 60
-       | 2 -> cpu.rtc_origin <- cpu.rtc_origin + (delta / 60 / 60 mod 24 - value mod 24) * 60 * 60
-       | 3 -> cpu.rtc_origin <- cpu.rtc_origin + (delta / 60 / 60 / 24 mod 256 - value mod 256) * 60 * 60 * 24
-       | 4 -> cpu.rtc_origin <- cpu.rtc_origin + (delta / 60 / 60 / 24 / 256 mod 2 - value mod 2) * 60 * 60 * 24 * 256;
-       (* FIXME: implement halt and carry bits *)
-       | n -> Printf.eprintf "write_8: RTC register %d does not exist.\n%!" n
-     )
+     else if cpu.rtc_selected < 5 then (
+       let open Int64 in
+       let now = of_float (Unix.time ()) in
+       let rtc_origin = get_persistent_field memory RTC_Origin in
+       let delta = to_int (sub now rtc_origin) in
+       let rtc_increment = match cpu.rtc_selected with
+         | 0 -> delta mod 60 - value mod 60
+         | 1 -> (delta / 60 mod 60 - value mod 60) * 60
+         | 2 -> (delta / 60 / 60 mod 24 - value mod 24) * 60 * 60
+         | 3 -> (delta / 60 / 60 / 24 mod 256 - value mod 256) * 60 * 60 * 24
+         | 4 -> (delta / 60 / 60 / 24 / 256 mod 2 - value mod 2) * 60 * 60 * 24 * 256
+         (* FIXME: implement halt and carry bits *)
+         | _ -> assert false
+       in
+       let updated_rtc_origin = add rtc_origin (of_int rtc_increment) in
+       set_persistent_field memory RTC_Origin updated_rtc_origin
+     ) else Printf.eprintf "write_8: RTC register %d does not exist.\n%!" cpu.rtc_selected
   | _ when addr < 0xd000 -> memory.ram_work_0.{addr - 0xc000} <- value
   | _ when addr < 0xe000 -> memory.ram_work_n.{addr - 0xd000} <- value
   | _ when addr < 0xf000 -> memory.ram_work_0.{addr - 0xe000} <- value (* prohibited; mirror of 0xc000-0xcfff *)
