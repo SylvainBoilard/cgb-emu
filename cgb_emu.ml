@@ -44,14 +44,15 @@ let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
     let stat = memory.io_registers.{0x41} in
     let stat =
       if stat land 0x03 <> lcd_mode then (
-        if lcd_mode = 3
-        then Lcd.render_line lcd memory lcd_y
+        if lcd_mode = 3 then
+          Lcd.render_line lcd memory lcd_y
         else (
           if stat land 0x08 lsl lcd_mode <> 0 then
             memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x02;
-          if lcd_mode = 1 then
-            memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x01
-          else if lcd_mode = 0 && memory.io_registers.{0x55} land 0x80 = 0 then (
+          if lcd_mode = 1 then (
+            memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x01;
+            lcd.window_y_internal <- -1
+          ) else if lcd_mode = 0 && memory.io_registers.{0x55} land 0x80 = 0 then (
             let src = memory.io_registers.{0x51} lsl 8 lor memory.io_registers.{0x52} in
             let dst = memory.io_registers.{0x53} lsl 8 lor memory.io_registers.{0x54} in
             Cpu.perform_dma_step memory src dst 16;

@@ -11,6 +11,7 @@ type t = {
     vertex_position_attrib_pos : GL.attrib_location;
     vertex_texture_coords_attrib_pos : GL.attrib_location;
     texture_uniform_pos : GL.uniform_location;
+    mutable window_y_internal: int;
   }
 
 let create () =
@@ -40,7 +41,8 @@ let create () =
   { program; vertex_buffer; lcd_texture; tiles_texture; line_data;
     vertex_position_attrib_pos = GL.getAttribLocation program "VertexPosition";
     vertex_texture_coords_attrib_pos = GL.getAttribLocation program "VertexTextureCoords";
-    texture_uniform_pos = GL.getUniformLocation program "LcdTexture" }
+    texture_uniform_pos = GL.getUniformLocation program "LcdTexture";
+    window_y_internal = -1 }
 
 let get_color_index memory tile_index signed_index attrs px py =
   assert (px >= 0 && px < 8 && py >= 0 && py < 8);
@@ -69,7 +71,8 @@ let render_line lcd memory lcd_y =
   let bigger_sprites = lcdc land 0x04 <> 0 in
   let bg_base_tile_offset = if lcdc land 0x08 = 0 then 0x1800 else 0x1c00 in
   let bg_win_signed_indices = lcdc land 0x10 = 0 in
-  let win_enable = lcdc land 0x20 <> 0 && window_y <= lcd_y in
+  let win_enable = lcdc land 0x20 <> 0 && window_y <= lcd_y && window_x < 160 in
+  if win_enable then lcd.window_y_internal <- lcd.window_y_internal + 1;
   let win_base_tile_offset = if lcdc land 0x40 = 0 then 0x1800 else 0x1c00 in
   let sprites =
     let sprites_height = if bigger_sprites then 16 else 8 in
@@ -88,7 +91,7 @@ let render_line lcd memory lcd_y =
     let bg_win_color_index, bg_win_attrs =
       let x, y, base_tile_offset =
         if win_enable && window_x <= lcd_x
-        then lcd_x - window_x, lcd_y - window_y, win_base_tile_offset
+        then lcd_x - window_x, lcd.window_y_internal, win_base_tile_offset
         else world_x, world_y, bg_base_tile_offset
       in
       let tile_offset = base_tile_offset + (x land 0xf8) lsr 3 lor (y land 0xf8) lsl 2 in
@@ -102,15 +105,18 @@ let render_line lcd memory lcd_y =
          let x_pos = memory.oam.{hd + 1} - 8 in
          if x_pos <= lcd_x && lcd_x < x_pos + 8 then (
            let y_pos = memory.oam.{hd} - 16 in
-           let px = lcd_x - x_pos in
-           let py, tile_index =
-             if not bigger_sprites
-             then lcd_y - y_pos, memory.oam.{hd + 2}
-             else if lcd_y < y_pos + 8
-             then lcd_y - y_pos, memory.oam.{hd + 2} land 0xfe
-             else lcd_y - y_pos - 8, memory.oam.{hd + 2} lor 0x01
-           in
            let attrs = memory.oam.{hd + 3} in
+           let px, py = lcd_x - x_pos, (lcd_y - y_pos) land 0x07 in
+           let tile_index =
+             if not bigger_sprites
+             then memory.oam.{hd + 2}
+             else (
+               let upper, vflip = lcd_y < y_pos + 8, attrs land 0x40 <> 0 in
+               if upper && not vflip || not upper && vflip
+               then memory.oam.{hd + 2} land 0xfe
+               else memory.oam.{hd + 2} lor 0x01
+             )
+           in
            let color_index = get_color_index memory tile_index false attrs px py in
            if color_index <> 0
            then color_index, attrs
@@ -118,10 +124,7 @@ let render_line lcd memory lcd_y =
          ) else aux tl
     in
     let obj_color_index, obj_attrs = aux sprites in
-    if obj_color_index = 0
-       || bg_win_master_prio
-          && (bg_win_attrs land 0x80 <> 0
-              || (bg_win_color_index <> 0 && obj_attrs land 0x80 <> 0))
+    if obj_color_index = 0 || bg_win_color_index <> 0 && bg_win_master_prio && (bg_win_attrs land 0x80 <> 0 || obj_attrs land 0x80 <> 0)
     then get_color memory.bg_palette_data ((bg_win_attrs lsl 2 land 0x1c) lor bg_win_color_index)
     else get_color memory.obj_palette_data ((obj_attrs lsl 2 land 0x1c) lor obj_color_index)
   in
