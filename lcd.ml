@@ -111,7 +111,10 @@ let render_line lcd memory lcd_y =
              else lcd_y - y_pos - 8, memory.oam.{hd + 2} lor 0x01
            in
            let attrs = memory.oam.{hd + 3} in
-           get_color_index memory tile_index false attrs px py, attrs
+           let color_index = get_color_index memory tile_index false attrs px py in
+           if color_index <> 0
+           then color_index, attrs
+           else aux tl
          ) else aux tl
     in
     let obj_color_index, obj_attrs = aux sprites in
