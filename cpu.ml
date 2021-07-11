@@ -600,22 +600,26 @@ let execute cpu memory opcode = match Char.chr opcode with
   | '\xd8' -> ret cpu memory (get_flag cpu CarryFlag)
   | '\xe0' -> write_8 cpu memory (0xff00 + read_8_immediate cpu memory) cpu.%{A}
   | '\xe8' ->
-     let result = cpu.stack_ptr + signed_int8 (read_8_immediate cpu memory) in
+     let v = cpu.stack_ptr in
+     let i = signed_int8 (read_8_immediate cpu memory) in
+     let result = v + i in
      cpu.stack_ptr <- result land 0xffff;
      cpu.m_cycles <- cpu.m_cycles + 2;
      reset_flag cpu ZeroFlag;
      reset_flag cpu SubtractionFlag;
      change_flag cpu HalfCarryFlag (result >= 0x1000);
-     change_flag cpu CarryFlag (result < 0 || result >= 0x10000)
+     change_flag cpu CarryFlag (v land 0xff + i land 0xff >= 0x100)
   | '\xf0' -> cpu.%{A} <- read_8 cpu memory (0xff00 + read_8_immediate cpu memory)
   | '\xf8' ->
-     let result = cpu.stack_ptr + signed_int8 (read_8_immediate cpu memory) in
+     let v = cpu.stack_ptr in
+     let i = signed_int8 (read_8_immediate cpu memory) in
+     let result = v + i in
      cpu.%%{HL} <- result;
      cpu.m_cycles <- cpu.m_cycles + 1;
      reset_flag cpu ZeroFlag;
      reset_flag cpu SubtractionFlag;
      change_flag cpu HalfCarryFlag (result >= 0x1000);
-     change_flag cpu CarryFlag (result < 0 || result >= 0x10000)
+     change_flag cpu CarryFlag (v land 0xff + i land 0xff >= 0x100)
 
   | '\xc1' -> pop_rr cpu memory BC
   | '\xc9' -> ret cpu memory true
