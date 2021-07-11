@@ -276,19 +276,19 @@ let execute_cb_prefixed cpu memory =
   in
   let result = match Char.chr opcode with
     | '\x00'..'\x07' ->
+       change_flag cpu CarryFlag (operand land 0x80 <> 0);
+       operand lsl 1 lor operand lsr 7
+    | '\x08'..'\x0f' ->
+       change_flag cpu CarryFlag (operand land 0x01 <> 0);
+       operand lsl 7 lor operand lsr 1
+    | '\x10'..'\x17' ->
        let c = if get_flag cpu CarryFlag then 0x01 else 0x00 in
        change_flag cpu CarryFlag (operand land 0x80 <> 0);
        operand lsl 1 lor c
-    | '\x08'..'\x0f' ->
+    | '\x18'..'\x1f' ->
        let c = if get_flag cpu CarryFlag then 0x80 else 0x00 in
        change_flag cpu CarryFlag (operand land 0x01 <> 0);
        c lor operand lsr 1
-    | '\x10'..'\x17' ->
-       change_flag cpu CarryFlag (operand land 0x80 <> 0);
-       operand lsl 1 lor operand lsr 7
-    | '\x18'..'\x1f' ->
-       change_flag cpu CarryFlag (operand land 0x01 <> 0);
-       operand lsl 7 lor operand lsr 1
     | '\x20'..'\x27' ->
        change_flag cpu CarryFlag (operand land 0x80 <> 0);
        operand lsl 1
@@ -518,31 +518,31 @@ let execute cpu memory opcode = match Char.chr opcode with
   | '\x3e' -> ld_r_u8 cpu memory A
 
   | '\x07' ->
+     change_flag cpu CarryFlag (cpu.%{A} land 0x80 <> 0);
+     reset_flag cpu ZeroFlag;
+     reset_flag cpu SubtractionFlag;
+     reset_flag cpu HalfCarryFlag;
+     cpu.%{A} <- cpu.%{A} lsl 1 lor cpu.%{A} lsr 7
+  | '\x0f' ->
+     change_flag cpu CarryFlag (cpu.%{A} land 0x01 <> 0);
+     reset_flag cpu ZeroFlag;
+     reset_flag cpu SubtractionFlag;
+     reset_flag cpu HalfCarryFlag;
+     cpu.%{A} <- cpu.%{A} lsl 7 lor cpu.%{A} lsr 1
+  | '\x17' ->
      let c = if get_flag cpu CarryFlag then 0x01 else 0x00 in
      reset_flag cpu ZeroFlag;
      reset_flag cpu SubtractionFlag;
      reset_flag cpu HalfCarryFlag;
      change_flag cpu CarryFlag (cpu.%{A} land 0x80 <> 0);
      cpu.%{A} <- cpu.%{A} lsl 1 lor c
-  | '\x0f' ->
+  | '\x1f' ->
      let c = if get_flag cpu CarryFlag then 0x80 else 0x00 in
      reset_flag cpu ZeroFlag;
      reset_flag cpu SubtractionFlag;
      reset_flag cpu HalfCarryFlag;
      change_flag cpu CarryFlag (cpu.%{A} land 0x01 <> 0);
      cpu.%{A} <- c lor cpu.%{A} lsr 1
-  | '\x17' ->
-     change_flag cpu CarryFlag (cpu.%{A} land 0x80 <> 0);
-     reset_flag cpu ZeroFlag;
-     reset_flag cpu SubtractionFlag;
-     reset_flag cpu HalfCarryFlag;
-     cpu.%{A} <- cpu.%{A} lsl 1 lor cpu.%{A} lsr 7
-  | '\x1f' ->
-     change_flag cpu CarryFlag (cpu.%{A} land 0x01 <> 0);
-     reset_flag cpu ZeroFlag;
-     reset_flag cpu SubtractionFlag;
-     reset_flag cpu HalfCarryFlag;
-     cpu.%{A} <- cpu.%{A} lsl 7 lor cpu.%{A} lsr 1
   | '\x27' -> Printf.eprintf "execute: unimplemented opcode 0x%02x at 0x%04x\n%!" opcode (cpu.program_ctr - 1) (* TODO: DAA *)
   | '\x2f' ->
      set_flag cpu SubtractionFlag;
