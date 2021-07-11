@@ -343,18 +343,20 @@ let ld_addr_r cpu memory addr r =
   write_8 cpu memory addr cpu.%{r}
 
 let add_rr_rr cpu rrout rrin =
-  let result = cpu.%%{rrout} + cpu.%%{rrin} in
+  let rrout_v, rrin_v = cpu.%%{rrout}, cpu.%%{rrin} in
+  let result = rrout_v + rrin_v in
   cpu.%%{rrout} <- result;
   reset_flag cpu SubtractionFlag;
-  change_flag cpu HalfCarryFlag (result >= 0x1000);
+  change_flag cpu HalfCarryFlag (rrout_v land 0x0fff + rrin_v land 0x0fff >= 0x1000);
   change_flag cpu CarryFlag (result >= 0x10000);
   cpu.m_cycles <- cpu.m_cycles + 1
 
 let add_rr_sp cpu rrout =
-  let result = cpu.%%{rrout} + cpu.stack_ptr in
+  let rrout_v = cpu.%%{rrout} in
+  let result = rrout_v + cpu.stack_ptr in
   cpu.%%{rrout} <- result;
   reset_flag cpu SubtractionFlag;
-  change_flag cpu HalfCarryFlag (result >= 0x1000);
+  change_flag cpu HalfCarryFlag (rrout_v land 0x0fff + cpu.stack_ptr land 0x0fff >= 0x1000);
   change_flag cpu CarryFlag (result >= 0x10000);
   cpu.m_cycles <- cpu.m_cycles + 1
 
@@ -379,14 +381,14 @@ let incr_r cpu r =
   cpu.%{r} <- result;
   change_flag cpu ZeroFlag (result = 0x100);
   reset_flag cpu SubtractionFlag;
-  change_flag cpu HalfCarryFlag (result >= 0x10)
+  change_flag cpu HalfCarryFlag (result land 0x0f = 0x00)
 
 let decr_r cpu r =
   let result = cpu.%{r} - 1 in
   cpu.%{r} <- result;
   change_flag cpu ZeroFlag (result = 0);
   set_flag cpu SubtractionFlag;
-  change_flag cpu HalfCarryFlag (result >= 0x10)
+  change_flag cpu HalfCarryFlag (result land 0x0f = 0x0f)
 
 let ld_r_u8 cpu memory r =
   cpu.%{r} <- read_8_immediate cpu memory
@@ -490,7 +492,7 @@ let execute cpu memory opcode = match Char.chr opcode with
      write_8 cpu memory addr result;
      change_flag cpu ZeroFlag (result = 0x100);
      reset_flag cpu SubtractionFlag;
-     change_flag cpu HalfCarryFlag (result >= 0x10)
+     change_flag cpu HalfCarryFlag (result land 0x0f = 0x00)
   | '\x3c' -> incr_r cpu A
 
   | '\x05' -> decr_r cpu B
@@ -505,7 +507,7 @@ let execute cpu memory opcode = match Char.chr opcode with
      write_8 cpu memory addr result;
      change_flag cpu ZeroFlag (result = 0);
      set_flag cpu SubtractionFlag;
-     change_flag cpu HalfCarryFlag (result >= 0x10)
+     change_flag cpu HalfCarryFlag (result land 0x0f = 0x0f)
   | '\x3d' -> decr_r cpu A
 
   | '\x06' -> ld_r_u8 cpu memory B
@@ -577,21 +579,33 @@ let execute cpu memory opcode = match Char.chr opcode with
        | 0x7 -> cpu.%{A}
        | n -> cpu.registers.{n}
      in
-     let result = match operator with
-       | 0x0 -> cpu.%{A} + operand_data
-       | 0x1 -> cpu.%{A} + operand_data + Bool.to_int (get_flag cpu CarryFlag)
-       | 0x2 -> cpu.%{A} - operand_data
-       | 0x3 -> cpu.%{A} - operand_data - Bool.to_int (get_flag cpu CarryFlag)
-       | 0x4 -> cpu.%{A} land operand_data
-       | 0x5 -> cpu.%{A} lxor operand_data
-       | 0x6 -> cpu.%{A} lor operand_data
-       | 0x7 -> cpu.%{A} - operand_data
+     let result, hcf = match operator with
+       | 0x0 ->
+          cpu.%{A} + operand_data,
+          cpu.%{A} land 0x0f + operand_data land 0x0f >= 0x10
+       | 0x1 ->
+          let c = Bool.to_int (get_flag cpu CarryFlag) in
+          cpu.%{A} + operand_data + c,
+          cpu.%{A} land 0x0f + operand_data land 0x0f + c >= 0x10
+       | 0x2 ->
+          cpu.%{A} - operand_data,
+          cpu.%{A} land 0x0f < operand_data land 0x0f
+       | 0x3 ->
+          let c = Bool.to_int (get_flag cpu CarryFlag) in
+          cpu.%{A} - operand_data - c,
+          cpu.%{A} land 0x0f < operand_data land 0x0f + c
+       | 0x4 -> cpu.%{A} land operand_data, true
+       | 0x5 -> cpu.%{A} lxor operand_data, false
+       | 0x6 -> cpu.%{A} lor operand_data, false
+       | 0x7 ->
+          cpu.%{A} - operand_data,
+          cpu.%{A} land 0x0f < operand_data land 0x0f
        | _ -> assert false
      in
      if operator <> 0x7 then cpu.%{A} <- result;
      change_flag cpu ZeroFlag (result land 0xff = 0);
      change_flag cpu SubtractionFlag (match operator with 0x2 | 0x3 | 0x7 -> true | _ -> false);
-     change_flag cpu HalfCarryFlag (match operator with 0x4 -> true | 0x5 | 0x6 -> false | _ -> result >= 0x10);
+     change_flag cpu HalfCarryFlag hcf;
      change_flag cpu CarryFlag (result >= 256 || result < 0)
 
   | '\xc0' -> ret cpu memory (not (get_flag cpu ZeroFlag))
@@ -607,7 +621,7 @@ let execute cpu memory opcode = match Char.chr opcode with
      cpu.m_cycles <- cpu.m_cycles + 2;
      reset_flag cpu ZeroFlag;
      reset_flag cpu SubtractionFlag;
-     change_flag cpu HalfCarryFlag (result >= 0x1000);
+     change_flag cpu HalfCarryFlag (v land 0x0f + i land 0x0f >= 0x10);
      change_flag cpu CarryFlag (v land 0xff + i land 0xff >= 0x100)
   | '\xf0' -> cpu.%{A} <- read_8 cpu memory (0xff00 + read_8_immediate cpu memory)
   | '\xf8' ->
@@ -618,7 +632,7 @@ let execute cpu memory opcode = match Char.chr opcode with
      cpu.m_cycles <- cpu.m_cycles + 1;
      reset_flag cpu ZeroFlag;
      reset_flag cpu SubtractionFlag;
-     change_flag cpu HalfCarryFlag (result >= 0x1000);
+     change_flag cpu HalfCarryFlag (v land 0x0f + i land 0x0f >= 0x10);
      change_flag cpu CarryFlag (v land 0xff + i land 0xff >= 0x100)
 
   | '\xc1' -> pop_rr cpu memory BC
@@ -664,21 +678,33 @@ let execute cpu memory opcode = match Char.chr opcode with
   | '\xc6' | '\xce' | '\xd6' | '\xde' | '\xe6' | '\xee' | '\xf6' | '\xfe' ->
      let operator = opcode lsr 3 land 0x7 in
      let operand_data = read_8_immediate cpu memory in
-     let result = match operator with
-       | 0x0 -> cpu.%{A} + operand_data
-       | 0x1 -> cpu.%{A} + operand_data + Bool.to_int (get_flag cpu CarryFlag)
-       | 0x2 -> cpu.%{A} - operand_data
-       | 0x3 -> cpu.%{A} - operand_data - Bool.to_int (get_flag cpu CarryFlag)
-       | 0x4 -> cpu.%{A} land operand_data
-       | 0x5 -> cpu.%{A} lxor operand_data
-       | 0x6 -> cpu.%{A} lor operand_data
-       | 0x7 -> cpu.%{A} - operand_data
+     let result, hcf = match operator with
+       | 0x0 ->
+          cpu.%{A} + operand_data,
+          cpu.%{A} land 0x0f + operand_data land 0x0f >= 0x10
+       | 0x1 ->
+          let c = Bool.to_int (get_flag cpu CarryFlag) in
+          cpu.%{A} + operand_data + c,
+          cpu.%{A} land 0x0f + operand_data land 0x0f + c >= 0x10
+       | 0x2 ->
+          cpu.%{A} - operand_data,
+          cpu.%{A} land 0x0f < operand_data land 0x0f
+       | 0x3 ->
+          let c = Bool.to_int (get_flag cpu CarryFlag) in
+          cpu.%{A} - operand_data - c,
+          cpu.%{A} land 0x0f < operand_data land 0x0f + c
+       | 0x4 -> cpu.%{A} land operand_data, true
+       | 0x5 -> cpu.%{A} lxor operand_data, false
+       | 0x6 -> cpu.%{A} lor operand_data, false
+       | 0x7 ->
+          cpu.%{A} - operand_data,
+          cpu.%{A} land 0x0f < operand_data land 0x0f
        | _ -> assert false
      in
      if operator <> 0x7 then cpu.%{A} <- result;
      change_flag cpu ZeroFlag (result land 0xff = 0);
      change_flag cpu SubtractionFlag (match operator with 0x2 | 0x3 | 0x7 -> true | _ -> false);
-     change_flag cpu HalfCarryFlag (match operator with 0x4 -> true | 0x5 | 0x6 -> false | _ -> result >= 16);
+     change_flag cpu HalfCarryFlag hcf;
      change_flag cpu CarryFlag (result >= 256 || result < 0)
   | '\xc7' | '\xcf' | '\xd7' | '\xdf' | '\xe7' | '\xef' | '\xf7' | '\xff' ->
      push_pc cpu memory;
