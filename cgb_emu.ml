@@ -132,6 +132,9 @@ let () =
     Printf.eprintf "Usage: %s rom_file\n%!" Sys.argv.(0);
     exit 1
   );
+  let cpu = Cpu.create () in
+  let memory = Unix.handle_unix_error Memory.init_from_rom Sys.argv.(1) in
+  let lcd = Lcd.create () in
   GLFW.init ();
   GLFW.windowHint GLFW.ClientApi GLFW.OpenGLESApi;
   GLFW.windowHint GLFW.ContextVersionMajor 2;
@@ -141,9 +144,6 @@ let () =
   GLFW.makeContextCurrent (Some lcd_window);
   GLFW.windowHint GLFW.Visible false;
   let tiles_window = GLFW.createWindow ~width:512 ~height:384 ~title:"cgb_emu – tiles" ~share:lcd_window () in
-  let cpu = Cpu.create () in
-  let memory = Unix.handle_unix_error Memory.init_from_rom Sys.argv.(1) in
-  let lcd = Lcd.create () in
   GLFW.setKeyCallback lcd_window (Some (key_callback cpu memory tiles_window)) |> ignore;
   GLFW.setWindowPos lcd_window 8 84;
   GLFW.setKeyCallback tiles_window (Some (key_callback cpu memory tiles_window)) |> ignore;
