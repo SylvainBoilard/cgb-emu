@@ -549,7 +549,19 @@ let execute cpu memory opcode = match Char.chr opcode with
      reset_flag cpu HalfCarryFlag;
      change_flag cpu CarryFlag (cpu.%{A} land 0x01 <> 0);
      cpu.%{A} <- c lor cpu.%{A} lsr 1
-  | '\x27' -> Printf.eprintf "execute: unimplemented opcode 0x%02x at 0x%04x\n%!" opcode (cpu.program_ctr - 1) (* TODO: DAA *)
+  | '\x27' ->
+     if get_flag cpu SubtractionFlag then (
+       if get_flag cpu CarryFlag then cpu.%{A} <- cpu.%{A} - 0x60;
+       if get_flag cpu HalfCarryFlag then cpu.%{A} <- cpu.%{A} - 0x06
+     ) else (
+       if get_flag cpu CarryFlag || cpu.%{A} > 0x99 then (
+         cpu.%{A} <- cpu.%{A} + 0x60;
+         set_flag cpu CarryFlag
+       );
+       if get_flag cpu HalfCarryFlag || cpu.%{A} land 0x0f > 0x09 then cpu.%{A} <- cpu.%{A} + 0x06
+     );
+     change_flag cpu ZeroFlag (cpu.%{A} = 0);
+     reset_flag cpu HalfCarryFlag
   | '\x2f' ->
      set_flag cpu SubtractionFlag;
      set_flag cpu HalfCarryFlag;
