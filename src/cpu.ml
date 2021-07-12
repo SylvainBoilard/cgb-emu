@@ -383,18 +383,16 @@ let decr_sp cpu =
   cpu.m_cycles <- cpu.m_cycles + 1
 
 let incr_r cpu r =
-  let result = cpu.%{r} + 1 in
-  cpu.%{r} <- result;
-  change_flag cpu ZeroFlag (result = 0x100);
+  cpu.%{r} <- cpu.%{r} + 1;
+  change_flag cpu ZeroFlag (cpu.%{r} = 0);
   reset_flag cpu SubtractionFlag;
-  change_flag cpu HalfCarryFlag (result land 0x0f = 0x00)
+  change_flag cpu HalfCarryFlag (cpu.%{r} land 0x0f = 0x00)
 
 let decr_r cpu r =
-  let result = cpu.%{r} - 1 in
-  cpu.%{r} <- result;
-  change_flag cpu ZeroFlag (result = 0);
+  cpu.%{r} <- cpu.%{r} - 1;
+  change_flag cpu ZeroFlag (cpu.%{r} = 0);
   set_flag cpu SubtractionFlag;
-  change_flag cpu HalfCarryFlag (result land 0x0f = 0x0f)
+  change_flag cpu HalfCarryFlag (cpu.%{r} land 0x0f = 0x0f)
 
 let ld_r_u8 cpu memory r =
   cpu.%{r} <- read_8_immediate cpu memory
