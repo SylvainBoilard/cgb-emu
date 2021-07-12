@@ -206,7 +206,16 @@ let write_8 cpu memory addr value =
      memory.io_registers.{0x04} <- 0
   | 0xff05 (* Timer Counter *) -> memory.io_registers.{0x05} <- value
   | 0xff06 (* Timer Modulo *) -> memory.io_registers.{0x06} <- value
-  | 0xff07 (* Timer Control *) -> memory.io_registers.{0x07} <- value land 0x07
+  | 0xff07 (* Timer Control *) ->
+     let delta = cpu.m_cycles - cpu.timer_counter_last_tick in
+     begin match value land 0x03 with
+     | 0x0 -> cpu.timer_counter_last_tick <- cpu.m_cycles - delta mod 256
+     | 0x1 -> cpu.timer_counter_last_tick <- cpu.m_cycles - delta mod 4
+     | 0x2 -> cpu.timer_counter_last_tick <- cpu.m_cycles - delta mod 16
+     | 0x3 -> cpu.timer_counter_last_tick <- cpu.m_cycles - delta mod 64
+     | _ -> assert false
+     end;
+     memory.io_registers.{0x07} <- value land 0x07
   | 0xff0f (* Interrupt Flag *) -> memory.io_registers.{0x0f} <- value land 0x1f
   | _ when addr >= 0xff10 && addr < 0xff40 (* Sound *) -> memory.io_registers.{addr - 0xff00} <- value (* SILENCE: sound *)
   | 0xff40 (* LCD Control *) -> memory.io_registers.{0x40} <- value
