@@ -114,7 +114,7 @@ let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
       while requested_and_enabled lsr !i land 0x01 = 0 do incr i done;
       memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lxor 0x01 lsl !i;
       cpu.program_ctr <- !i lsl 3 lor 0x40;
-      cpu.m_cycles <- cpu.m_cycles + 1
+      cpu.m_cycles <- cpu.m_cycles + 2
     ) else if cpu.halted then (
       cpu.m_cycles <- cpu.m_cycles + 1
     ) else (
