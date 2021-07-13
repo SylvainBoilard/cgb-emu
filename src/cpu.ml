@@ -216,7 +216,7 @@ let write_8 cpu memory addr value =
      | _ -> assert false
      end;
      memory.io_registers.{0x07} <- value land 0x07
-  | 0xff0f (* Interrupt Flag *) -> memory.io_registers.{0x0f} <- value land 0x1f
+  | 0xff0f (* Interrupt Flag *) -> memory.io_registers.{0x0f} <- value lor 0xe0
   | _ when addr >= 0xff10 && addr < 0xff40 (* Sound *) -> memory.io_registers.{addr - 0xff00} <- value (* SILENCE: sound *)
   | 0xff40 (* LCD Control *) -> memory.io_registers.{0x40} <- value
   | 0xff41 (* LCD Status *) -> memory.io_registers.{0x41} <- (value land 0x78) lor (memory.io_registers.{0x41} land 0x07)
@@ -437,7 +437,7 @@ let call cpu memory cond =
     cpu.m_cycles <- cpu.m_cycles + 1
   )
 
-let execute cpu memory opcode = match Char.chr opcode with
+let rec execute cpu memory opcode = match Char.chr opcode with
   | '\xd3' | '\xdb' | '\xdd' | '\xe3' | '\xe4' | '\xeb'..'\xed' | '\xf4' | '\xfc' | '\xfd' ->
      Printf.eprintf "execute: illegal opcode 0x%02x at 0x%04x.\n%!" opcode (cpu.program_ctr - 1)
   | '\x00' -> ()
@@ -584,7 +584,14 @@ let execute cpu memory opcode = match Char.chr opcode with
      reset_flag cpu HalfCarryFlag;
      change_flag cpu CarryFlag (not (get_flag cpu CarryFlag))
 
-  | '\x76' -> cpu.halted <- true
+  | '\x76' ->
+     if memory.ram_high.{0x7f} land memory.io_registers.{0x0f} land 0x1f = 0 then
+       cpu.halted <- true
+     else if not cpu.interrupt_master_enable then ( (* HALT bug *)
+       let opcode = read_8_immediate cpu memory in
+       cpu.program_ctr <- cpu.program_ctr - 1;
+       execute cpu memory opcode
+     )
   | '\x40'..'\x7f' (* 8-bit load *) ->
      let src_data = match opcode land 0x7 with
        | 0x6 -> read_8 cpu memory cpu.%%{HL}

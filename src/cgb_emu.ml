@@ -101,7 +101,7 @@ let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
       done
     );
     (* Check for interrupts *)
-    let requested_and_enabled = memory.ram_high.{0x7f} land memory.io_registers.{0x0f} in
+    let requested_and_enabled = memory.ram_high.{0x7f} land memory.io_registers.{0x0f} land 0x1f in
     (* Even if IME is unset, when an enabled interrupt is requested, un-halt.*)
     if requested_and_enabled <> 0 then
       cpu.halted <- false;
