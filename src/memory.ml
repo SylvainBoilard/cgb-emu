@@ -76,6 +76,8 @@ let init_from_rom filename =
   if persistant_data_file_created then (
     persistent_data.{int_of_persistent_field RTC_Origin} <- Int64.of_float (time ())
   );
+  close rom_fd;
+  close persistent_data_fd;
   { rom_0; rom_n = rom_banks.(1); ram_video_n = ram_video_banks.(0); ram_ext_n = ram_ext_banks.(0);
     ram_work_0 = ram_work_banks.(0); ram_work_n = ram_work_banks.(1); oam; io_registers; ram_high;
     rom_banks; ram_video_banks; ram_ext_banks; ram_work_banks; bg_palette_data; obj_palette_data;
