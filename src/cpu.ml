@@ -202,19 +202,53 @@ let write_8 cpu memory addr value =
   | 0xff01 | 0xff02 (* Serial port *) -> () (* SILENCE: serial port *)
   | 0xff04 (* Divider Register *) ->
      cpu.divider_register_last_tick <- cpu.m_cycles;
+     if memory.io_registers.{0x07} land 0x04 <> 0 then (
+       let current_delta = cpu.m_cycles - cpu.timer_counter_last_tick in
+       let current_interval = match memory.io_registers.{0x07} land 0x03 with
+         | 0x0 -> 256
+         | 0x1 -> 4
+         | 0x2 -> 16
+         | 0x3 -> 64
+         | _ -> assert false
+       in
+       if current_delta >= current_interval / 2 then (
+         memory.io_registers.{0x05} <- memory.io_registers.{0x05} + 1;
+         if memory.io_registers.{0x05} = 0x00 then (
+           memory.io_registers.{0x05} <- memory.io_registers.{0x06};
+           memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x04
+         )
+       )
+     );
      cpu.timer_counter_last_tick <- cpu.m_cycles;
      memory.io_registers.{0x04} <- 0
   | 0xff05 (* Timer Counter *) -> memory.io_registers.{0x05} <- value
   | 0xff06 (* Timer Modulo *) -> memory.io_registers.{0x06} <- value
   | 0xff07 (* Timer Control *) ->
-     let delta = cpu.m_cycles - cpu.timer_counter_last_tick in
-     begin match value land 0x03 with
-     | 0x0 -> cpu.timer_counter_last_tick <- cpu.m_cycles - delta mod 256
-     | 0x1 -> cpu.timer_counter_last_tick <- cpu.m_cycles - delta mod 4
-     | 0x2 -> cpu.timer_counter_last_tick <- cpu.m_cycles - delta mod 16
-     | 0x3 -> cpu.timer_counter_last_tick <- cpu.m_cycles - delta mod 64
+     let current_delta = cpu.m_cycles - cpu.timer_counter_last_tick in
+     let current_interval = match memory.io_registers.{0x07} land 0x03 with
+     | 0x0 -> 256
+     | 0x1 -> 4
+     | 0x2 -> 16
+     | 0x3 -> 64
      | _ -> assert false
-     end;
+     in
+     let new_interval = match value land 0x03 with
+     | 0x0 -> 256
+     | 0x1 -> 4
+     | 0x2 -> 16
+     | 0x3 -> 64
+     | _ -> assert false
+     in
+     let new_delta = current_delta mod new_interval in
+     if memory.io_registers.{0x07} land 0x04 <> 0 && current_delta >= current_interval / 2
+        && (new_delta < new_interval / 2 || value land 0x04 = 0) then (
+       memory.io_registers.{0x05} <- memory.io_registers.{0x05} + 1;
+       if memory.io_registers.{0x05} = 0x00 then (
+         memory.io_registers.{0x05} <- memory.io_registers.{0x06};
+         memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x04
+       )
+     );
+     cpu.timer_counter_last_tick <- cpu.m_cycles - new_delta;
      memory.io_registers.{0x07} <- value land 0x07
   | 0xff0f (* Interrupt Flag *) -> memory.io_registers.{0x0f} <- value lor 0xe0
   | _ when addr >= 0xff10 && addr < 0xff40 (* Sound *) -> memory.io_registers.{addr - 0xff00} <- value (* SILENCE: sound *)
