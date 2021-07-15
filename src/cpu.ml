@@ -12,6 +12,7 @@ type t = {
     mutable halted: bool;
     mutable divider_register_last_tick: int;
     mutable timer_counter_last_tick: int;
+    mutable timer_counter_overflow: bool;
 
     mutable inputs: int;
     mutable ext_ram_or_timer_enable: bool;
@@ -79,7 +80,7 @@ let create () =
   registers.{int_of_register A} <- 0x11; (* CGB hardware *)
   { registers; program_ctr = 0x100; stack_ptr = 0xfffe; m_cycles = 0;
     interrupt_master_enable = true; interrupt_master_enable_pending = false; halted = false;
-    divider_register_last_tick = 0; timer_counter_last_tick = 0;
+    divider_register_last_tick = 0; timer_counter_last_tick = 0; timer_counter_overflow = false;
     inputs = 0; ext_ram_or_timer_enable = false;
     rtc_selected = -1; rtc_latched = -1L }
 
@@ -93,8 +94,42 @@ let perform_dma_step memory src dst size =
   | '\xd0'..'\xdf' -> Array1.(blit (sub memory.ram_work_n (src land 0x0ff0) size) dst_sub)
   | _ -> Printf.eprintf "perform_dma_step: DMA transfer to VRAM from address 0x%04x not implemented.\n%!" src
 
-let read_8 cpu memory addr =
+let incr_m_cycles cpu memory =
   cpu.m_cycles <- cpu.m_cycles + 1;
+  if cpu.interrupt_master_enable_pending then (
+    cpu.interrupt_master_enable <- true;
+    cpu.interrupt_master_enable_pending <- false;
+  );
+  if cpu.timer_counter_overflow then (
+    memory.io_registers.{0x05} <- memory.io_registers.{0x06};
+    if memory.io_registers.{0x07} land 0x04 <> 0 then
+      memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x04;
+    cpu.timer_counter_overflow <- false
+  );
+  if cpu.divider_register_last_tick + 64 <= cpu.m_cycles then (
+    cpu.divider_register_last_tick <- cpu.divider_register_last_tick + 64;
+    assert (cpu.divider_register_last_tick = cpu.m_cycles);
+    memory.io_registers.{0x04} <- memory.io_registers.{0x04} + 1
+  );
+  if memory.io_registers.{0x07} land 0x04 <> 0 then (
+    let tick_interval = match memory.io_registers.{0x07} land 0x03 with
+      | 0x0 -> 256
+      | 0x1 -> 4
+      | 0x2 -> 16
+      | 0x3 -> 64
+      | _ -> assert false
+    in
+    if cpu.timer_counter_last_tick + tick_interval <= cpu.m_cycles then (
+      cpu.timer_counter_last_tick <- cpu.timer_counter_last_tick + tick_interval;
+      assert (cpu.timer_counter_last_tick = cpu.m_cycles);
+      memory.io_registers.{0x05} <- memory.io_registers.{0x05} + 1;
+      if memory.io_registers.{0x05} = 0 then
+        cpu.timer_counter_overflow <- true
+    )
+  )
+
+let read_8 cpu memory addr =
+  incr_m_cycles cpu memory;
   match addr with
   | _ when addr < 0x0 || addr >= 0x10000 -> invalid_arg "read_8: address out of range"
   | _ when addr < 0x4000 -> memory.rom_0.{addr}
@@ -139,7 +174,7 @@ let read_8 cpu memory addr =
   | 0xff47 | 0xff48 | 0xff49 -> memory.io_registers.{addr - 0xff00} (* SILENCE: Grayscale palettes *)
   | _ when addr >= 0xff10 && addr < 0xff40 -> memory.io_registers.{addr - 0xff00} (* SILENCE: sound *)
   | _ when addr >= 0xff80 -> memory.ram_high.{addr - 0xff80}
-  | _ -> Printf.eprintf "read_8: 0x%04x is outside implemented range.\n%!" addr; 0
+  | _ -> Printf.eprintf "read_8: 0x%04x is outside implemented range.\n%!" addr; -1
 
 let read_8_immediate cpu memory =
   let addr = cpu.program_ctr in
@@ -147,14 +182,15 @@ let read_8_immediate cpu memory =
   read_8 cpu memory addr
 
 let read_16 cpu memory addr =
-  read_8 cpu memory (addr + 1) lsl 8 lor read_8 cpu memory addr
+  let low = read_8 cpu memory addr in
+  read_8 cpu memory (addr + 1) lsl 8 lor low
 
 let read_16_immediate cpu memory =
   let low = read_8_immediate cpu memory in
   read_8_immediate cpu memory lsl 8 lor low
 
 let write_8 cpu memory addr value =
-  cpu.m_cycles <- cpu.m_cycles + 1;
+  incr_m_cycles cpu memory;
   match addr with
   | _ when addr < 0x0 || addr >= 0x10000 -> invalid_arg "write_8: address out of range"
   | _ when addr < 0x2000 -> cpu.ext_ram_or_timer_enable <- value land 0x0f = 0x0a
@@ -213,15 +249,15 @@ let write_8 cpu memory addr value =
        in
        if current_delta >= current_interval / 2 then (
          memory.io_registers.{0x05} <- memory.io_registers.{0x05} + 1;
-         if memory.io_registers.{0x05} = 0x00 then (
-           memory.io_registers.{0x05} <- memory.io_registers.{0x06};
-           memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x04
-         )
+         if memory.io_registers.{0x05} = 0 then
+           cpu.timer_counter_overflow <- true;
        )
      );
      cpu.timer_counter_last_tick <- cpu.m_cycles;
      memory.io_registers.{0x04} <- 0
-  | 0xff05 (* Timer Counter *) -> memory.io_registers.{0x05} <- value
+  | 0xff05 (* Timer Counter *) ->
+     memory.io_registers.{0x05} <- value;
+     cpu.timer_counter_overflow <- false
   | 0xff06 (* Timer Modulo *) -> memory.io_registers.{0x06} <- value
   | 0xff07 (* Timer Control *) ->
      let current_delta = cpu.m_cycles - cpu.timer_counter_last_tick in
@@ -243,10 +279,8 @@ let write_8 cpu memory addr value =
      if memory.io_registers.{0x07} land 0x04 <> 0 && current_delta >= current_interval / 2
         && (new_delta < new_interval / 2 || value land 0x04 = 0) then (
        memory.io_registers.{0x05} <- memory.io_registers.{0x05} + 1;
-       if memory.io_registers.{0x05} = 0x00 then (
-         memory.io_registers.{0x05} <- memory.io_registers.{0x06};
-         memory.io_registers.{0x0f} <- memory.io_registers.{0x0f} lor 0x04
-       )
+       if memory.io_registers.{0x05} = 0 then
+         cpu.timer_counter_overflow <- true
      );
      cpu.timer_counter_last_tick <- cpu.m_cycles - new_delta;
      memory.io_registers.{0x07} <- value land 0x07
@@ -291,7 +325,7 @@ let write_8 cpu memory addr value =
        let dst = memory.io_registers.{0x53} lsl 8 lor memory.io_registers.{0x54} in
        let length = (value land 0x7f + 1) lsl 4 in
        perform_dma_step memory src dst length;
-       cpu.m_cycles <- cpu.m_cycles + length / 2;
+       for _ = 1 to length / 2 do incr_m_cycles cpu memory done;
        memory.io_registers.{0x55} <- 0xff
      )
   | 0xff56 (* Infrared Port *) -> () (* SILENCE: infrared port *)
@@ -369,14 +403,14 @@ let jr cpu memory cond =
   let offset = signed_int8 (read_8_immediate cpu memory) in
   if cond then (
     cpu.program_ctr <- cpu.program_ctr + offset;
-    cpu.m_cycles <- cpu.m_cycles + 1
+    incr_m_cycles cpu memory
   )
 
 let jp cpu memory cond =
   let addr = read_16_immediate cpu memory in
   if cond then (
     cpu.program_ctr <- addr;
-    cpu.m_cycles <- cpu.m_cycles + 1
+    incr_m_cycles cpu memory
   )
 
 let ld_rr_u16 cpu memory rr =
@@ -391,39 +425,39 @@ let ld_r_addr cpu memory r addr =
 let ld_addr_r cpu memory addr r =
   write_8 cpu memory addr cpu.%{r}
 
-let add_rr_rr cpu rrout rrin =
+let add_rr_rr cpu memory rrout rrin =
   let rrout_v, rrin_v = cpu.%%{rrout}, cpu.%%{rrin} in
   let result = rrout_v + rrin_v in
   cpu.%%{rrout} <- result;
   reset_flag cpu SubtractionFlag;
   change_flag cpu HalfCarryFlag (rrout_v land 0x0fff + rrin_v land 0x0fff >= 0x1000);
   change_flag cpu CarryFlag (result >= 0x10000);
-  cpu.m_cycles <- cpu.m_cycles + 1
+  incr_m_cycles cpu memory
 
-let add_rr_sp cpu rrout =
+let add_rr_sp cpu memory rrout =
   let rrout_v = cpu.%%{rrout} in
   let result = rrout_v + cpu.stack_ptr in
   cpu.%%{rrout} <- result;
   reset_flag cpu SubtractionFlag;
   change_flag cpu HalfCarryFlag (rrout_v land 0x0fff + cpu.stack_ptr land 0x0fff >= 0x1000);
   change_flag cpu CarryFlag (result >= 0x10000);
-  cpu.m_cycles <- cpu.m_cycles + 1
+  incr_m_cycles cpu memory
 
-let incr_rr cpu rr =
+let incr_rr cpu memory rr =
   cpu.%%{rr} <- cpu.%%{rr} + 1;
-  cpu.m_cycles <- cpu.m_cycles + 1
+  incr_m_cycles cpu memory
 
-let decr_rr cpu rr =
+let decr_rr cpu memory rr =
   cpu.%%{rr} <- cpu.%%{rr} - 1;
-  cpu.m_cycles <- cpu.m_cycles + 1
+  incr_m_cycles cpu memory
 
-let incr_sp cpu =
+let incr_sp cpu memory =
   cpu.stack_ptr <- cpu.stack_ptr + 1;
-  cpu.m_cycles <- cpu.m_cycles + 1
+  incr_m_cycles cpu memory
 
-let decr_sp cpu =
+let decr_sp cpu memory =
   cpu.stack_ptr <- cpu.stack_ptr - 1;
-  cpu.m_cycles <- cpu.m_cycles + 1
+  incr_m_cycles cpu memory
 
 let incr_r cpu r =
   cpu.%{r} <- cpu.%{r} + 1;
@@ -458,17 +492,18 @@ let pop_pc cpu memory =
   cpu.stack_ptr <- cpu.stack_ptr + 2
 
 let ret cpu memory cond =
+  incr_m_cycles cpu memory;
   if cond then (
-    pop_pc cpu memory;
-    cpu.m_cycles <- cpu.m_cycles + 2
-  ) else cpu.m_cycles <- cpu.m_cycles + 1
+    incr_m_cycles cpu memory;
+    pop_pc cpu memory
+  )
 
 let call cpu memory cond =
   let addr = read_16_immediate cpu memory in
+  incr_m_cycles cpu memory;
   if cond then (
     push_pc cpu memory;
-    cpu.program_ctr <- addr;
-    cpu.m_cycles <- cpu.m_cycles + 1
+    cpu.program_ctr <- addr
   )
 
 let rec execute cpu memory opcode = match Char.chr opcode with
@@ -489,13 +524,13 @@ let rec execute cpu memory opcode = match Char.chr opcode with
   | '\x38' -> jr cpu memory (get_flag cpu CarryFlag)
 
   | '\x01' -> ld_rr_u16 cpu memory BC
-  | '\x09' -> add_rr_rr cpu HL BC
+  | '\x09' -> add_rr_rr cpu memory HL BC
   | '\x11' -> ld_rr_u16 cpu memory DE
-  | '\x19' -> add_rr_rr cpu HL DE
+  | '\x19' -> add_rr_rr cpu memory HL DE
   | '\x21' -> ld_rr_u16 cpu memory HL
-  | '\x29' -> add_rr_rr cpu HL HL
+  | '\x29' -> add_rr_rr cpu memory HL HL
   | '\x31' -> ld_sp_u16 cpu memory
-  | '\x39' -> add_rr_sp cpu HL
+  | '\x39' -> add_rr_sp cpu memory HL
 
   | '\x02' -> ld_addr_r cpu memory cpu.%%{BC} A
   | '\x0a' -> ld_r_addr cpu memory A cpu.%%{BC}
@@ -518,14 +553,14 @@ let rec execute cpu memory opcode = match Char.chr opcode with
      ld_r_addr cpu memory A addr;
      cpu.%%{HL} <- addr - 1
 
-  | '\x03' -> incr_rr cpu BC
-  | '\x0b' -> decr_rr cpu BC
-  | '\x13' -> incr_rr cpu DE
-  | '\x1b' -> decr_rr cpu DE
-  | '\x23' -> incr_rr cpu HL
-  | '\x2b' -> decr_rr cpu HL
-  | '\x33' -> incr_sp cpu
-  | '\x3b' -> decr_sp cpu
+  | '\x03' -> incr_rr cpu memory BC
+  | '\x0b' -> decr_rr cpu memory BC
+  | '\x13' -> incr_rr cpu memory DE
+  | '\x1b' -> decr_rr cpu memory DE
+  | '\x23' -> incr_rr cpu memory HL
+  | '\x2b' -> decr_rr cpu memory HL
+  | '\x33' -> incr_sp cpu memory
+  | '\x3b' -> decr_sp cpu memory
 
   | '\x04' -> incr_r cpu B
   | '\x0c' -> incr_r cpu C
@@ -684,22 +719,23 @@ let rec execute cpu memory opcode = match Char.chr opcode with
      let i = signed_int8 (read_8_immediate cpu memory) in
      let result = v + i in
      cpu.stack_ptr <- result land 0xffff;
-     cpu.m_cycles <- cpu.m_cycles + 2;
      reset_flag cpu ZeroFlag;
      reset_flag cpu SubtractionFlag;
      change_flag cpu HalfCarryFlag (v land 0x0f + i land 0x0f >= 0x10);
-     change_flag cpu CarryFlag (v land 0xff + i land 0xff >= 0x100)
+     change_flag cpu CarryFlag (v land 0xff + i land 0xff >= 0x100);
+     incr_m_cycles cpu memory;
+     incr_m_cycles cpu memory
   | '\xf0' -> cpu.%{A} <- read_8 cpu memory (0xff00 + read_8_immediate cpu memory)
   | '\xf8' ->
      let v = cpu.stack_ptr in
      let i = signed_int8 (read_8_immediate cpu memory) in
      let result = v + i in
      cpu.%%{HL} <- result;
-     cpu.m_cycles <- cpu.m_cycles + 1;
      reset_flag cpu ZeroFlag;
      reset_flag cpu SubtractionFlag;
      change_flag cpu HalfCarryFlag (v land 0x0f + i land 0x0f >= 0x10);
-     change_flag cpu CarryFlag (v land 0xff + i land 0xff >= 0x100)
+     change_flag cpu CarryFlag (v land 0xff + i land 0xff >= 0x100);
+     incr_m_cycles cpu memory
 
   | '\xc1' -> pop_rr cpu memory BC
   | '\xc9' -> ret cpu memory true
@@ -712,7 +748,7 @@ let rec execute cpu memory opcode = match Char.chr opcode with
   | '\xf1' -> pop_rr cpu memory AF
   | '\xf9' ->
      cpu.stack_ptr <- cpu.%%{HL};
-     cpu.m_cycles <- cpu.m_cycles + 1
+     incr_m_cycles cpu memory
 
   | '\xc2' -> jp cpu memory (not (get_flag cpu ZeroFlag))
   | '\xca' -> jp cpu memory (get_flag cpu ZeroFlag)
@@ -775,4 +811,4 @@ let rec execute cpu memory opcode = match Char.chr opcode with
   | '\xc7' | '\xcf' | '\xd7' | '\xdf' | '\xe7' | '\xef' | '\xf7' | '\xff' ->
      push_pc cpu memory;
      cpu.program_ctr <- opcode land 0x38;
-     cpu.m_cycles <- cpu.m_cycles + 1
+     incr_m_cycles cpu memory
