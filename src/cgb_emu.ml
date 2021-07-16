@@ -108,6 +108,7 @@ let () =
   );
   let cpu = Cpu.create () in
   let memory = Unix.handle_unix_error Memory.init_from_rom Sys.argv.(1) in
+  Memory.print_rom_info memory;
   GLFW.init ();
   GLFW.windowHint GLFW.ClientApi GLFW.OpenGLESApi;
   GLFW.windowHint GLFW.ContextVersionMajor 2;

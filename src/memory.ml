@@ -37,15 +37,13 @@ let init_from_rom filename =
   let open Unix in
   let rom_fd = openfile filename [O_RDONLY] 0 in
   let rom_0 = array1_of_genarray (map_file rom_fd Int8_unsigned C_layout false [| 16384 |]) in
-  let rom_size = rom_0.{0x148} in
-  let ram_size = rom_0.{0x149} in
   let rom_banks =
-    Array.init (2 lsl rom_size) (fun i ->
+    Array.init (2 lsl rom_0.{0x0148}) (fun i ->
         if i = 0 then rom_0
         else array1_of_genarray (map_file rom_fd ~pos:(Int64.of_int (16384 * i)) Int8_unsigned C_layout false [| 16384 |]))
   in
   let ram_video_banks = Array.init 2 (fun _ -> Array1.create Int8_unsigned C_layout 8192) in
-  let ram_ext_bank_count = match ram_size with
+  let ram_ext_bank_count = match rom_0.{0x0149} with
     | 0x01 | 0x02 -> 1
     | 0x03 -> 4
     | 0x04 -> 16
@@ -89,3 +87,60 @@ let init_from_rom filename =
     ram_work_0 = ram_work_banks.(0); ram_work_n = ram_work_banks.(1); oam; io_registers; ram_high;
     rom_banks; ram_video_banks; ram_ext_banks; ram_work_banks; bg_palette_data; obj_palette_data;
     persistent_data }
+
+let print_rom_info memory =
+  let cgb_flag = memory.rom_0.{0x0143} in
+  Printf.eprintf "CGB flag: %02x (%s)\n" cgb_flag begin
+      match cgb_flag with
+      | 0x80 -> "supported"
+      | 0xc0 -> "CGB only"
+      | v when v land 0x80 <> 0 -> "supported; non typical value"
+      | _ -> "unsupported"
+    end;
+  let cart_type = memory.rom_0.{0x0147} in
+  Printf.eprintf "Cartridge type: %02x (%s)\n" cart_type begin
+      match cart_type with
+      | 0x00 -> "ROM ONLY"
+      | 0x01 -> "MBC1"
+      | 0x02 -> "MBC1+RAM"
+      | 0x03 -> "MBC1+RAM+BATTERY"
+      | 0x05 -> "MBC2"
+      | 0x06 -> "MBC2+BATTERY"
+      | 0x08 -> "ROM+RAM"
+      | 0x09 -> "ROM+RAM+BATTERY"
+      | 0x0b -> "MMM01"
+      | 0x0c -> "MMM01+RAM"
+      | 0x0d -> "MMM01+RAM+BATTERY"
+      | 0x0f -> "MBC3+TIMER+BATTERY"
+      | 0x10 -> "MBC3+TIMER+RAM+BATTERY"
+      | 0x11 -> "MBC3"
+      | 0x12 -> "MBC3+RAM"
+      | 0x13 -> "MBC3+RAM+BATTERY"
+      | 0x19 -> "MBC5"
+      | 0x1a -> "MBC5+RAM"
+      | 0x1b -> "MBC5+RAM+BATTERY"
+      | 0x1c -> "MBC5+RUMBLE"
+      | 0x1d -> "MBC5+RUMBLE+RAM"
+      | 0x1e -> "MBC5+RUMBLE+RAM+BATTERY"
+      | 0x20 -> "MBC6"
+      | 0x22 -> "MBC7+SENSOR+RUMBLE+RAM+BATTERY"
+      | 0xfc -> "POCKET CAMERA"
+      | 0xfd -> "BANDAI TAMA5"
+      | 0xfe -> "HuC3"
+      | 0xff -> "HuC1+RAM+BATTERY"
+      | _ -> "unknown"
+    end;
+  let rom_size = memory.rom_0.{0x0148} in
+  Printf.eprintf "ROM size: %02x (%d × 8 KiB banks)\n" rom_size (2 lsl rom_size);
+  let ram_size = memory.rom_0.{0x0149} in
+  Printf.eprintf "RAM size: %02x (%s)\n" ram_size begin
+      match ram_size with
+      | 0x00 -> "None"
+      | 0x01 -> "2 KiB"
+      | 0x02 -> "8 KiB"
+      | 0x03 -> "32 KiB (4 × 8 KiB banks)"
+      | 0x04 -> "128 KiB (16 × 8 KiB banks)"
+      | 0x05 -> "64 KiB (8 × 8 KiB banks)"
+      | _ -> "unknown"
+    end;
+  Printf.eprintf "%!"
