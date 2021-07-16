@@ -194,11 +194,11 @@ let write_8 cpu memory addr value =
   match addr with
   | _ when addr < 0x0 || addr >= 0x10000 -> invalid_arg "write_8: address out of range"
   | _ when addr < 0x2000 -> cpu.ext_ram_or_timer_enable <- value land 0x0f = 0x0a
-  | _ when addr < 0x4000 -> memory.rom_n <- memory.rom_banks.(max 1 (value land 0x7f))
+  | _ when addr < 0x4000 -> memory.rom_n <- memory.rom_banks.(max 1 (value mod Array.length memory.rom_banks))
   | _ when addr < 0x6000 ->
      if value land 0x08 = 0 then (
        cpu.rtc_selected <- -1;
-       memory.ram_ext_n <- memory.ram_ext_banks.(value land 0x03)
+       memory.ram_ext_n <- memory.ram_ext_banks.(value mod Array.length memory.ram_ext_banks)
      ) else cpu.rtc_selected <- value land 0x07
   | _ when addr < 0x8000 ->
      if value land 0x01 = 0

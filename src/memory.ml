@@ -45,7 +45,13 @@ let init_from_rom filename =
         else array1_of_genarray (map_file rom_fd ~pos:(Int64.of_int (16384 * i)) Int8_unsigned C_layout false [| 16384 |]))
   in
   let ram_video_banks = Array.init 2 (fun _ -> Array1.create Int8_unsigned C_layout 8192) in
-  let ram_ext_bank_count = if ram_size >= 2 then 1 lsl ((ram_size - 2) * 2) else 0 in
+  let ram_ext_bank_count = match ram_size with
+    | 0x01 | 0x02 -> 1
+    | 0x03 -> 4
+    | 0x04 -> 16
+    | 0x05 -> 8
+    | _ -> 0
+  in
   let persistent_data_fd, persistant_data_file_created =
     let persistent_data_filename = filename ^ ".sav" in
     try
