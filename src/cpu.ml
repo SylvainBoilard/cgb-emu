@@ -6,10 +6,11 @@ type t = {
     registers: (int, int8_unsigned_elt, c_layout) Array1.t; (* BC DE HL A(znhc----) *)
     mutable program_ctr: int;
     mutable stack_ptr: int;
-    mutable m_cycles: int; (* 2^20 per second *)
+    mutable m_cycles: int; (* 2^20 per second in single speed *)
     mutable interrupt_master_enable: bool;
     mutable interrupt_master_enable_pending: bool;
     mutable halted: bool;
+    mutable double_speed: bool;
     mutable divider_register_last_tick: int;
     mutable timer_counter_last_tick: int;
     mutable timer_counter_overflow: bool;
@@ -79,7 +80,7 @@ let create () =
   Array1.fill registers 0;
   registers.{int_of_register A} <- 0x11; (* CGB hardware *)
   { registers; program_ctr = 0x100; stack_ptr = 0xfffe; m_cycles = 0;
-    interrupt_master_enable = true; interrupt_master_enable_pending = false; halted = false;
+    interrupt_master_enable = true; interrupt_master_enable_pending = false; halted = false; double_speed = false;
     divider_register_last_tick = 0; timer_counter_last_tick = 0; timer_counter_overflow = false;
     inputs = 0; ext_ram_or_timer_enable = false;
     rtc_selected = -1; rtc_latched = -1L }
@@ -511,12 +512,9 @@ let rec execute cpu memory opcode = match Char.chr opcode with
      Printf.eprintf "execute: illegal opcode 0x%02x at 0x%04x.\n%!" opcode (cpu.program_ctr - 1)
   | '\x00' -> ()
   | '\x08' -> write_16 cpu memory (read_16_immediate cpu memory) cpu.stack_ptr
-  | '\x10' -> (* TODO: implement double speed support *)
-     if memory.io_registers.{0x4d} land 0x01 <> 0 then (
-       Printf.eprintf "execute: attempted speed switch (unimplemented, triggered by STOP at 0x%04x, masquerading).\n%!"
-         (cpu.program_ctr - 1);
+  | '\x10' ->
+     if memory.io_registers.{0x4d} land 0x01 <> 0 then
        memory.io_registers.{0x4d} <- memory.io_registers.{0x4d} lxor 0x81
-     )
   | '\x18' -> jr cpu memory true
   | '\x20' -> jr cpu memory (not (get_flag cpu ZeroFlag))
   | '\x28' -> jr cpu memory (get_flag cpu ZeroFlag)

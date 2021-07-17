@@ -11,6 +11,7 @@ type t = {
     vertex_position_attrib_pos : GL.attrib_location;
     vertex_texture_coords_attrib_pos : GL.attrib_location;
     texture_uniform_pos : GL.uniform_location;
+    mutable timer_internal: int; (* 2^22 per second *)
     mutable window_y_internal: int;
   }
 
@@ -42,7 +43,7 @@ let create () =
     vertex_position_attrib_pos = GL.getAttribLocation program "VertexPosition";
     vertex_texture_coords_attrib_pos = GL.getAttribLocation program "VertexTextureCoords";
     texture_uniform_pos = GL.getUniformLocation program "LcdTexture";
-    window_y_internal = -1 }
+    timer_internal = 0; window_y_internal = -1 }
 
 let get_color_index memory tile_index signed_index attrs px py =
   assert (px >= 0 && px < 8 && py >= 0 && py < 8);

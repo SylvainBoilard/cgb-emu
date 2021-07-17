@@ -31,14 +31,15 @@ let key_callback (cpu : Cpu.t) (memory : Memory.t) tiles_window current_window k
   | _ -> ()
 
 let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
-  let next_vblank = cpu.m_cycles - (cpu.m_cycles + 1140) mod 17556 + 17556 in
-  while cpu.m_cycles < next_vblank do
+  let next_vblank = lcd.timer_internal - (lcd.timer_internal + 4560) mod 70224 + 70224 in
+  while lcd.timer_internal < next_vblank do
+    let start_m_cycles = cpu.m_cycles in
     (* Update LCD *)
-    let lcd_y = cpu.m_cycles / 114 mod 154 in
-    let lcd_mode = match cpu.m_cycles mod 114 with
+    let lcd_y = lcd.timer_internal / 456 mod 154 in
+    let lcd_mode = match lcd.timer_internal mod 456 with
       | _ when lcd_y >= 144 -> 1
-      | c when c < 20 -> 2
-      | c when c < 63 -> 3
+      | c when c < 80 -> 2
+      | c when c < 252 -> 3
       | _ -> 0
     in
     let stat = memory.io_registers.{0x41} in
@@ -98,6 +99,13 @@ let run_until_vblank (cpu : Cpu.t) (memory : Memory.t) (lcd : Lcd.t) =
       Cpu.incr_m_cycles cpu memory
     ) else ( (* Execute next instruction *)
       Cpu.(execute cpu memory (read_8_immediate cpu memory))
+    );
+    let m_cycles_delta = cpu.m_cycles - start_m_cycles in
+    lcd.timer_internal <-
+      lcd.timer_internal + m_cycles_delta * if cpu.double_speed then 2 else 4;
+    if cpu.double_speed <> (memory.io_registers.{0x4d} land 0x80 <> 0) then (
+      cpu.double_speed <- not cpu.double_speed;
+      lcd.timer_internal <- lcd.timer_internal + 8200
     )
   done
 
