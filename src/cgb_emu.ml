@@ -123,9 +123,11 @@ let () =
   GLFW.windowHint GLFW.ContextVersionMinor 0;
   GLFW.windowHint GLFW.Resizable false;
   let lcd_window = GLFW.createWindow 480 432 "cgb_emu" () in
-  GLFW.makeContextCurrent (Some lcd_window);
   GLFW.windowHint GLFW.Visible false;
   let tiles_window = GLFW.createWindow ~width:512 ~height:384 ~title:"cgb_emu – tiles" ~share:lcd_window () in
+  GLFW.makeContextCurrent (Some tiles_window);
+  GLFW.swapInterval 0;
+  GLFW.makeContextCurrent (Some lcd_window);
   GLFW.setKeyCallback lcd_window (Some (key_callback cpu memory tiles_window)) |> ignore;
   GLFW.setWindowPos lcd_window 8 84;
   GLFW.setKeyCallback tiles_window (Some (key_callback cpu memory tiles_window)) |> ignore;
