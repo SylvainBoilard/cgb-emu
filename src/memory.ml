@@ -50,7 +50,7 @@ let init_from_rom filename =
     | 0x05 -> 8
     | _ -> 0
   in
-  let persistent_data_fd, persistant_data_file_created =
+  let persistent_data_fd, persistent_data_file_created =
     let persistent_data_filename = filename ^ ".sav" in
     try
       openfile persistent_data_filename [O_RDWR] 0, false
@@ -78,7 +78,7 @@ let init_from_rom filename =
   Array1.fill bg_palette_data ~-1;
   let obj_palette_data = Array1.create Int8_unsigned C_layout 64 in
   let persistent_data = array1_of_genarray (map_file persistent_data_fd ~pos:(Int64.of_int (8192 * ram_ext_bank_count)) Int64 C_layout true [| 1 |]) in
-  if persistant_data_file_created then (
+  if persistent_data_file_created then (
     persistent_data.{int_of_persistent_field RTC_Origin} <- Int64.of_float (time ())
   );
   close rom_fd;

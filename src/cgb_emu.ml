@@ -116,7 +116,6 @@ let () =
   );
   let cpu = Cpu.create () in
   let memory = Unix.handle_unix_error Memory.init_from_rom Sys.argv.(1) in
-  Memory.print_rom_info memory;
   GLFW.init ();
   GLFW.windowHint GLFW.ClientApi GLFW.OpenGLESApi;
   GLFW.windowHint GLFW.ContextVersionMajor 2;
@@ -129,9 +128,7 @@ let () =
   GLFW.swapInterval 0;
   GLFW.makeContextCurrent (Some lcd_window);
   GLFW.setKeyCallback lcd_window (Some (key_callback cpu memory tiles_window)) |> ignore;
-  GLFW.setWindowPos lcd_window 8 84;
   GLFW.setKeyCallback tiles_window (Some (key_callback cpu memory tiles_window)) |> ignore;
-  GLFW.setWindowPos tiles_window 504 108;
   let lcd = Lcd.create () in
   let start_real_time = GLFW.getTime () in
   let start_cpu_time = Sys.time () in
