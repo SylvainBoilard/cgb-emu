@@ -1,11 +1,11 @@
 let record_gb_input (cpu : Cpu.t) (memory : Memory.t) key action =
   let b = match key with
-    | GLFW.Right -> 0x01
-    | Left -> 0x02
-    | Up -> 0x04
-    | Down -> 0x08
-    | PageUp | Home -> 0x10
-    | PageDown | End -> 0x20
+    | GLFW.D -> 0x01
+    | A -> 0x02
+    | W -> 0x04
+    | S -> 0x08
+    | Q -> 0x10
+    | E -> 0x20
     | Space -> 0x40
     | Enter -> 0x80
     | _ -> -1
